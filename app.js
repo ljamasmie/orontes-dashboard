@@ -59,7 +59,7 @@ function seedPeople(){
 
 function seedTasks(people){
   const today = new Date();
-  const fmt = (d)=> d.toISOString().slice(0,10);
+  const fmt = (d)=> `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const addDays = (n)=>{ const d = new Date(today); d.setDate(d.getDate()+n); return fmt(d); };
   const p = people;
   return [
@@ -117,7 +117,13 @@ setInterval(()=>{
    2. UTILIDADES GENERALES
    ============================================================ */
 function pad2(n){ return n.toString().padStart(2,'0'); }
-function todayStr(){ return new Date().toISOString().slice(0,10); }
+/* IMPORTANTE: nunca usar Date.toISOString() para obtener "la fecha de hoy" o
+   formatear fechas locales — convierte a UTC y puede devolver el día
+   equivocado según la zona horaria del usuario (ej: en Chile, de noche,
+   toISOString() puede adelantar la fecha un día). Siempre usamos los
+   componentes locales del objeto Date. */
+function toISODate(d){ return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+function todayStr(){ return toISODate(new Date()); }
 function parseDate(str){ if(!str) return null; const [y,m,d] = str.split('-').map(Number); return new Date(y, m-1, d); }
 function fmtDateHuman(str){
   if(!str) return '—';
@@ -293,7 +299,7 @@ document.getElementById('confirmOk').addEventListener('click', ()=>{
   STATE.pendingDeleteAction = null;
 });
 
-window.ORONTES = { STATE, STORAGE_KEYS, PALETTE, saveJSON, loadJSON, uid, todayStr, parseDate, fmtDateHuman,
+window.ORONTES = { STATE, STORAGE_KEYS, PALETTE, saveJSON, loadJSON, uid, todayStr, parseDate, fmtDateHuman, toISODate,
   daysBetween, getPerson, getPersonName, getPersonColor, initials, ESTADOS, PRIORIDADES, getUrgencyState,
   escapeHtml, persistTasks, persistPeople, persistActivity, toast, askConfirm, switchView, brandMarkSVG };
 
@@ -639,7 +645,7 @@ function moveTaskDate(id, newDate){
   const oldDur = O.daysBetween(O.parseDate(t.fechaTermino||t.fechaInicio), O.parseDate(t.fechaInicio));
   t.fechaInicio = newDate;
   const d = O.parseDate(newDate); d.setDate(d.getDate()+oldDur);
-  t.fechaTermino = d.toISOString().slice(0,10);
+  t.fechaTermino = O.toISODate(d);
   persistTasks();
   logActivity(`<b>${O.escapeHtml(t.nombre)}</b> se movió al ${O.fmtDateHuman(newDate)}`, 'fa-calendar-day');
   toast('Fecha actualizada', 'success', 'fa-circle-check');
@@ -649,7 +655,7 @@ function moveTaskDate(id, newDate){
 function addComment(taskId, text){
   const t = STATE.tasks.find(x=>x.id===taskId);
   const now = new Date();
-  t.comentarios.push({id:uid('c'), autor:'Yo', texto:text, fecha:now.toISOString().slice(0,10), hora:`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`});
+  t.comentarios.push({id:uid('c'), autor:'Yo', texto:text, fecha:O.toISODate(now), hora:`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`});
   persistTasks();
   logActivity(`Nuevo comentario en <b>${O.escapeHtml(t.nombre)}</b>`, 'fa-comment');
   O.renderNotifications && O.renderNotifications();
@@ -909,7 +915,11 @@ const { STATE } = O;
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const DIAS_SEMANA = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
 
-function fmtISO(d){ return d.toISOString().slice(0,10); }
+function fmtISO(d){
+  // OJO: evitamos d.toISOString() porque convierte a UTC y puede desalinear
+  // el día según la zona horaria del navegador. Usamos siempre componentes locales.
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 
 function applyFilters(list){
   const f = STATE.filters;
@@ -1327,7 +1337,7 @@ function renderCharts(){
   const days7 = Array.from({length:7},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); return d; });
   const wLabels = days7.map(d=> ['dom','lun','mar','mié','jue','vie','sáb'][d.getDay()]);
   const wData = days7.map(d=>{
-    const iso = d.toISOString().slice(0,10);
+    const iso = O.toISODate(d);
     return tasks.filter(t=> t.estado==='completada' && (t.fechaTermino||t.fechaInicio)===iso).length;
   });
   charts.avanceSemanal = new Chart(document.getElementById('chartAvanceSemanal'), {
