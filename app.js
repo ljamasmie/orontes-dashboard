@@ -504,9 +504,21 @@ function renderFileList(){
 }
 
 /* --- Abrir / cerrar modal de tarea --- */
+function smartDefaultDate(presetDate){
+  if(presetDate) return presetDate;
+  // Si el calendario está activo, usar la fecha que se está viendo (mes/semana/día)
+  // en vez de forzar siempre "hoy", para que la tarea nueva quede visible de inmediato.
+  const calView = document.getElementById('view-calendar');
+  if(calView && calView.classList.contains('active') && STATE.calDate){
+    const d = STATE.calDate;
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  return todayStr();
+}
 function openTaskModal(taskId, presetDate){
   STATE.editingTaskId = taskId || null;
   const t = taskId ? STATE.tasks.find(x=>x.id===taskId) : null;
+  const defaultDate = smartDefaultDate(presetDate);
   document.getElementById('taskModalTitle').textContent = t ? 'Editar tarea' : 'Nueva tarea';
   document.getElementById('f-id').value = t ? t.id : '';
   document.getElementById('f-nombre').value = t ? t.nombre : '';
@@ -514,8 +526,8 @@ function openTaskModal(taskId, presetDate){
   refreshAllSelects();
   document.getElementById('f-responsable').value = t ? (t.responsable||'') : '';
   document.getElementById('f-categoria').value = t ? (t.categoria||'') : '';
-  document.getElementById('f-fechaInicio').value = t ? t.fechaInicio : (presetDate || todayStr());
-  document.getElementById('f-fechaTermino').value = t ? (t.fechaTermino||'') : (presetDate || todayStr());
+  document.getElementById('f-fechaInicio').value = t ? t.fechaInicio : defaultDate;
+  document.getElementById('f-fechaTermino').value = t ? (t.fechaTermino||'') : defaultDate;
   document.getElementById('f-hora').value = t ? (t.hora||'') : '';
   document.getElementById('f-prioridad').value = t ? t.prioridad : 'media';
   document.getElementById('f-estado').value = t ? t.estado : 'pendiente';
@@ -555,20 +567,31 @@ document.getElementById('taskModalSave').addEventListener('click', ()=>{
   };
 
   const id = document.getElementById('f-id').value;
+  let savedTask;
   if(id){
     const t = STATE.tasks.find(x=>x.id===id);
     Object.assign(t, data);
+    savedTask = t;
     logActivity(`<b>${O.escapeHtml(nombre)}</b> fue actualizada`, 'fa-pen');
     toast('Tarea actualizada correctamente', 'success', 'fa-circle-check');
   } else {
     const t = {id: uid('t'), comentarios:[], ...data};
     STATE.tasks.push(t);
+    savedTask = t;
     logActivity(`<b>${O.escapeHtml(nombre)}</b> fue creada`, 'fa-plus');
     toast('Tarea creada correctamente', 'success', 'fa-circle-check');
   }
   persistTasks();
   closeTaskModal();
+  // Aseguramos que el calendario "salte" a la fecha de la tarea guardada,
+  // para que quede visible de inmediato sin importar qué mes se estaba viendo.
+  STATE.calDate = new Date(fechaInicio + 'T00:00:00');
   O.refreshCurrentView();
+  // Si hay un filtro activo que oculte la tarea recién guardada, avisamos.
+  const stillVisible = O.applyFilters([savedTask]).length > 0;
+  if(!stillVisible){
+    toast('La tarea se guardó, pero un filtro activo la está ocultando de esta vista', 'info', 'fa-filter');
+  }
   O.renderNotifications && O.renderNotifications();
 });
 
@@ -756,13 +779,13 @@ function tasksForDate(dateStr){
 }
 O.tasksForDate = tasksForDate;
 
-function openDayDrawer(dateStr){
-  currentDay = dateStr;
-  document.getElementById('dayDrawerTitle').textContent = O.fmtDateHuman(dateStr);
-  const tasks = tasksForDate(dateStr);
+function openTaskListDrawer(title, tasks, opts){
+  opts = opts || {};
+  currentDay = opts.presetDate || null;
+  document.getElementById('dayDrawerTitle').textContent = title;
   const body = document.getElementById('dayDrawerBody');
   if(!tasks.length){
-    body.innerHTML = `<div class="empty-state"><span class="brand-mark">${O.brandMarkSVG(48,'#B5B0A0')}</span><p>No hay tareas programadas para este día.</p></div>`;
+    body.innerHTML = `<div class="empty-state"><span class="brand-mark">${O.brandMarkSVG(48,'#B5B0A0')}</span><p>No hay tareas que coincidan.</p></div>`;
   } else {
     body.innerHTML = tasks.map(t=>{
       const urgency = O.getUrgencyState(t);
@@ -772,6 +795,7 @@ function openDayDrawer(dateStr){
           <span class="chip" style="background:${urgency.bg};color:${urgency.fg};padding:2px 8px;"><span class="dot" style="background:${urgency.fg};"></span>${urgency.label}</span>
           ${t.hora ? `<span><i class="fa-regular fa-clock"></i> ${t.hora}</span>` : ''}
           <span><i class="fa-regular fa-user"></i> ${O.escapeHtml(O.getPersonName(t.responsable))}</span>
+          <span><i class="fa-regular fa-calendar"></i> ${O.fmtDateHuman(t.fechaInicio)}</span>
         </div>
       </div>`;
     }).join('');
@@ -779,8 +803,12 @@ function openDayDrawer(dateStr){
       el.addEventListener('click', ()=> O.openTaskDrawer(el.dataset.id));
     });
   }
+  document.getElementById('dayDrawerAddBtn').style.display = opts.showAddButton===false ? 'none' : 'flex';
   document.getElementById('dayDrawer').classList.add('show');
   document.getElementById('overlay').classList.add('show');
+}
+function openDayDrawer(dateStr){
+  openTaskListDrawer(O.fmtDateHuman(dateStr), tasksForDate(dateStr), {presetDate: dateStr, showAddButton:true});
 }
 function closeDayDrawer(){
   document.getElementById('dayDrawer').classList.remove('show');
@@ -794,6 +822,7 @@ document.getElementById('dayDrawerAddBtn').addEventListener('click', ()=>{
 document.getElementById('overlay').addEventListener('click', ()=>{ closeDayDrawer(); O.closeTaskDrawer(); });
 O.openDayDrawer = openDayDrawer;
 O.closeDayDrawer = closeDayDrawer;
+O.openTaskListDrawer = openTaskListDrawer;
 })();
 
 /* ============================================================
@@ -1236,10 +1265,20 @@ function renderCharts(){
   const estadoLabels = Object.values(O.ESTADOS).map(e=>e.label);
   const estadoData = Object.keys(O.ESTADOS).map(k=> tasks.filter(t=>t.estado===k).length);
   const estadoColors = Object.values(O.ESTADOS).map(e=>e.fg);
+  const estadoKeys = Object.keys(O.ESTADOS);
   charts.estado = new Chart(document.getElementById('chartEstado'), {
     type:'doughnut',
     data:{ labels:estadoLabels, datasets:[{data:estadoData, backgroundColor:estadoColors, borderWidth:0}] },
-    options:{ plugins:{legend:{position:'bottom', labels:{boxWidth:10,padding:12}}}, cutout:'62%' }
+    options:{
+      plugins:{legend:{position:'bottom', labels:{boxWidth:10,padding:12}}}, cutout:'62%',
+      onClick:(evt, elements)=>{
+        if(!elements.length) return;
+        const key = estadoKeys[elements[0].index];
+        const matching = tasks.filter(t=>t.estado===key);
+        O.openTaskListDrawer(`Estado: ${O.ESTADOS[key].label}`, matching, {showAddButton:false});
+      },
+      onHover:(evt, elements)=>{ evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; }
+    }
   });
 
   // --- Por prioridad ---
@@ -1247,10 +1286,20 @@ function renderCharts(){
   const prLabels = Object.values(O.PRIORIDADES).map(p=>p.label);
   const prData = Object.keys(O.PRIORIDADES).map(k=> tasks.filter(t=>t.prioridad===k).length);
   const prColors = Object.values(O.PRIORIDADES).map(p=>p.color);
+  const prKeys = Object.keys(O.PRIORIDADES);
   charts.prioridad = new Chart(document.getElementById('chartPrioridad'), {
     type:'bar',
     data:{ labels:prLabels, datasets:[{data:prData, backgroundColor:prColors, borderRadius:6, maxBarThickness:44}] },
-    options:{ plugins:{legend:{display:false}}, scales:{ x:{grid:{display:false}}, y:{grid:{color:tc.grid}, beginAtZero:true, ticks:{precision:0}} } }
+    options:{
+      plugins:{legend:{display:false}}, scales:{ x:{grid:{display:false}}, y:{grid:{color:tc.grid}, beginAtZero:true, ticks:{precision:0}} },
+      onClick:(evt, elements)=>{
+        if(!elements.length) return;
+        const key = prKeys[elements[0].index];
+        const matching = tasks.filter(t=>t.prioridad===key);
+        O.openTaskListDrawer(`Prioridad: ${O.PRIORIDADES[key].label}`, matching, {showAddButton:false});
+      },
+      onHover:(evt, elements)=>{ evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; }
+    }
   });
 
   // --- Por responsable ---
@@ -1261,7 +1310,16 @@ function renderCharts(){
   charts.responsable = new Chart(document.getElementById('chartResponsable'), {
     type:'bar',
     data:{ labels:respLabels, datasets:[{data:respData, backgroundColor:respColors, borderRadius:6, maxBarThickness:36}] },
-    options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{grid:{color:tc.grid}, beginAtZero:true, ticks:{precision:0}}, y:{grid:{display:false}} } }
+    options:{
+      indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{grid:{color:tc.grid}, beginAtZero:true, ticks:{precision:0}}, y:{grid:{display:false}} },
+      onClick:(evt, elements)=>{
+        if(!elements.length) return;
+        const p = STATE.people[elements[0].index];
+        const matching = tasks.filter(t=>t.responsable===p.id);
+        O.openTaskListDrawer(`Responsable: ${p.nombre}`, matching, {showAddButton:false});
+      },
+      onHover:(evt, elements)=>{ evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; }
+    }
   });
 
   // --- Avance semanal (últimos 7 días: completadas por día) ---
