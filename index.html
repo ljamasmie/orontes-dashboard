@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orontes · Dashboard de Gestión</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body data-theme="light">
+
+<div id="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span class="brand-mark" id="brandMarkSidebar"></span>
+      <div class="brand-text">
+        <span class="brand-name">ORONTES</span>
+        <span class="brand-sub">Gestión &amp; Calendario</span>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-view="calendar"><i class="fa-regular fa-calendar"></i><span class="nav-label">Calendario</span></button>
+      <button class="nav-item" data-view="kanban"><i class="fa-solid fa-table-columns"></i><span class="nav-label">Kanban</span></button>
+      <button class="nav-item" data-view="list"><i class="fa-solid fa-list-ul"></i><span class="nav-label">Lista</span></button>
+      <button class="nav-item" data-view="dashboard"><i class="fa-solid fa-chart-pie"></i><span class="nav-label">Dashboard</span></button>
+      <button class="nav-item" data-view="people"><i class="fa-solid fa-users"></i><span class="nav-label">Encargados</span></button>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="sidebar-toggle" id="themeToggle"><i class="fa-solid fa-moon"></i><span class="nav-label">Modo oscuro</span></button>
+      <button class="sidebar-toggle" id="collapseToggle"><i class="fa-solid fa-angles-left"></i><span class="nav-label">Colapsar</span></button>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN COLUMN ============ -->
+  <div class="main-col">
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <button class="icon-btn" id="mobileMenuBtn" style="display:none;"><i class="fa-solid fa-bars"></i></button>
+      <div class="topbar-search">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" id="globalSearch" placeholder="Buscar tareas, responsables, etiquetas...">
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-clock" id="topbarClock">
+        <span class="clock-time">00:00:00</span>
+        <span class="clock-date">-- ---</span>
+      </div>
+      <button class="icon-btn" id="notifBtn" title="Notificaciones">
+        <i class="fa-regular fa-bell"></i>
+        <span class="badge" id="notifBadge" style="display:none;">0</span>
+      </button>
+      <button class="btn btn-primary" id="newTaskBtn"><i class="fa-solid fa-plus"></i> Nueva tarea</button>
+    </header>
+
+    <!-- Notification dropdown -->
+    <div class="notif-dropdown" id="notifDropdown">
+      <div class="notif-head">
+        <h4>Centro de notificaciones</h4>
+        <span class="filter-clear" id="clearNotifRead">Marcar leídas</span>
+      </div>
+      <div class="notif-list" id="notifList"></div>
+    </div>
+
+    <!-- ============ VIEWS ============ -->
+    <div class="views">
+
+      <!-- ---------- CALENDAR VIEW ---------- -->
+      <section class="view active" id="view-calendar">
+        <div class="view-header">
+          <div class="view-title">
+            <h2>Calendario</h2>
+            <span id="calSubtitle">Vista mensual de tareas</span>
+          </div>
+          <div class="cal-toolbar">
+            <div class="view-switch" id="calModeSwitch">
+              <button data-mode="day">Día</button>
+              <button data-mode="week">Semana</button>
+              <button class="active" data-mode="month">Mes</button>
+            </div>
+            <div class="cal-nav">
+              <button id="calPrev"><i class="fa-solid fa-chevron-left"></i></button>
+              <span class="cal-period-label" id="calPeriodLabel">Mes 2026</span>
+              <button id="calNext"><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="calTodayBtn">Hoy</button>
+          </div>
+        </div>
+        <div class="filters-bar" id="calFilters"></div>
+        <div id="calContainer"></div>
+      </section>
+
+      <!-- ---------- KANBAN VIEW ---------- -->
+      <section class="view" id="view-kanban">
+        <div class="view-header">
+          <div class="view-title"><h2>Vista Kanban</h2><span>Arrastra las tarjetas para cambiar el estado</span></div>
+          <div class="view-actions" id="kanbanFilters"></div>
+        </div>
+        <div class="kanban-board" id="kanbanBoard"></div>
+      </section>
+
+      <!-- ---------- LIST VIEW ---------- -->
+      <section class="view" id="view-list">
+        <div class="view-header">
+          <div class="view-title"><h2>Lista de tareas</h2><span id="listSubtitle">0 tareas</span></div>
+          <div class="view-actions">
+            <button class="btn btn-secondary btn-sm" id="exportJsonBtn"><i class="fa-solid fa-file-code"></i> JSON</button>
+            <button class="btn btn-secondary btn-sm" id="exportCsvBtn"><i class="fa-solid fa-file-csv"></i> CSV</button>
+            <button class="btn btn-secondary btn-sm" id="exportPdfBtn"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+            <label class="btn btn-secondary btn-sm" style="margin-bottom:0;">
+              <i class="fa-solid fa-file-import"></i> Importar
+              <input type="file" id="importInput" accept=".csv,.json" style="display:none;">
+            </label>
+          </div>
+        </div>
+        <div class="filters-bar" id="listFilters"></div>
+        <div class="list-table-wrap">
+          <table class="list-table">
+            <thead>
+              <tr>
+                <th>Tarea</th><th>Responsable</th><th>Fecha</th><th>Prioridad</th><th>Estado</th><th>Etiquetas</th>
+              </tr>
+            </thead>
+            <tbody id="listTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ---------- DASHBOARD VIEW ---------- -->
+      <section class="view" id="view-dashboard">
+        <div class="view-header">
+          <div class="view-title"><h2>Dashboard</h2><span>Resumen general de la operación</span></div>
+        </div>
+        <div class="stat-grid" id="statGrid"></div>
+        <div class="charts-grid">
+          <div class="chart-card"><h3>Tareas por estado</h3><canvas id="chartEstado"></canvas></div>
+          <div class="chart-card"><h3>Tareas por prioridad</h3><canvas id="chartPrioridad"></canvas></div>
+          <div class="chart-card"><h3>Tareas por responsable</h3><canvas id="chartResponsable"></canvas></div>
+          <div class="chart-card"><h3>Avance semanal</h3><canvas id="chartAvanceSemanal"></canvas></div>
+          <div class="chart-card"><h3>Avance mensual</h3><canvas id="chartAvanceMensual"></canvas></div>
+          <div class="chart-card"><h3>Productividad por persona</h3><canvas id="chartProductividad"></canvas></div>
+        </div>
+      </section>
+
+      <!-- ---------- PEOPLE VIEW ---------- -->
+      <section class="view" id="view-people">
+        <div class="view-header">
+          <div class="view-title"><h2>Encargados</h2><span>Administra a las personas de tu equipo</span></div>
+        </div>
+        <div class="people-grid" id="peopleGrid"></div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============ OVERLAY ============ -->
+<div class="overlay" id="overlay"></div>
+
+<!-- ============ DAY DETAIL DRAWER ============ -->
+<aside class="drawer" id="dayDrawer">
+  <div class="drawer-header">
+    <h3 id="dayDrawerTitle">Tareas del día</h3>
+    <button class="close-btn" id="dayDrawerClose"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+  <div class="drawer-body" id="dayDrawerBody"></div>
+  <div class="drawer-footer">
+    <button class="btn btn-primary" id="dayDrawerAddBtn" style="width:100%;justify-content:center;"><i class="fa-solid fa-plus"></i> Nueva tarea este día</button>
+  </div>
+</aside>
+
+<!-- ============ TASK DETAIL DRAWER ============ -->
+<aside class="drawer" id="taskDrawer">
+  <div class="drawer-header">
+    <h3>Detalle de tarea</h3>
+    <button class="close-btn" id="taskDrawerClose"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+  <div class="drawer-body" id="taskDrawerBody"></div>
+</aside>
+
+<!-- ============ TASK FORM MODAL ============ -->
+<div class="modal-backdrop" id="taskModalBackdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="taskModalTitle">Nueva tarea</h3>
+      <button class="close-btn" id="taskModalClose"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <form id="taskForm">
+        <input type="hidden" id="f-id">
+        <div class="form-grid">
+          <div class="form-field full">
+            <label>Nombre</label>
+            <input type="text" id="f-nombre" required placeholder="Ej: Control post-operatorio paciente Rojas">
+          </div>
+          <div class="form-field full">
+            <label>Descripción</label>
+            <textarea id="f-descripcion" placeholder="Detalle de la tarea..."></textarea>
+          </div>
+          <div class="form-field">
+            <label>Responsable</label>
+            <select id="f-responsable"></select>
+          </div>
+          <div class="form-field">
+            <label>Categoría</label>
+            <input type="text" id="f-categoria" placeholder="Ej: Clínico, Administrativo">
+          </div>
+          <div class="form-field">
+            <label>Fecha inicio</label>
+            <input type="date" id="f-fechaInicio" required>
+          </div>
+          <div class="form-field">
+            <label>Fecha término</label>
+            <input type="date" id="f-fechaTermino">
+          </div>
+          <div class="form-field">
+            <label>Hora (opcional)</label>
+            <input type="time" id="f-hora">
+          </div>
+          <div class="form-field">
+            <label>Prioridad</label>
+            <select id="f-prioridad">
+              <option value="baja">Baja</option>
+              <option value="media" selected>Media</option>
+              <option value="alta">Alta</option>
+              <option value="urgente">Urgente</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>Estado</label>
+            <select id="f-estado">
+              <option value="pendiente" selected>Pendiente</option>
+              <option value="progreso">En proceso</option>
+              <option value="espera">Esperando información</option>
+              <option value="completada">Completada</option>
+              <option value="cancelada">Cancelada</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>Color</label>
+            <div class="color-swatches" id="colorSwatches"></div>
+          </div>
+          <div class="form-field full">
+            <label>Etiquetas</label>
+            <div class="tag-input-wrap" id="tagInputWrap">
+              <input type="text" id="f-tagInput" placeholder="Escribe y presiona Enter...">
+            </div>
+          </div>
+          <div class="form-field full">
+            <label>Adjuntos</label>
+            <div class="file-drop" id="fileDrop">
+              <i class="fa-solid fa-paperclip"></i> Haz clic o arrastra archivos aquí
+              <input type="file" id="f-files" multiple style="display:none;">
+            </div>
+            <div class="file-list" id="fileList"></div>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="taskModalCancel">Cancelar</button>
+      <button class="btn btn-primary" id="taskModalSave"><i class="fa-solid fa-check"></i> Guardar tarea</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PERSON FORM MODAL ============ -->
+<div class="modal-backdrop" id="personModalBackdrop">
+  <div class="modal" style="width:420px;">
+    <div class="modal-header">
+      <h3 id="personModalTitle">Nuevo encargado</h3>
+      <button class="close-btn" id="personModalClose"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <form id="personForm">
+        <input type="hidden" id="p-id">
+        <div class="form-grid">
+          <div class="form-field full">
+            <label>Nombre</label>
+            <input type="text" id="p-nombre" required placeholder="Nombre completo">
+          </div>
+          <div class="form-field full">
+            <label>Cargo</label>
+            <input type="text" id="p-cargo" placeholder="Ej: Odontólogo, Recepción">
+          </div>
+          <div class="form-field full">
+            <label>Email (opcional)</label>
+            <input type="email" id="p-email" placeholder="correo@orontesodontologia.cl">
+          </div>
+          <div class="form-field full">
+            <label>Color asignado</label>
+            <div class="color-swatches" id="personColorSwatches"></div>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="personModalCancel">Cancelar</button>
+      <button class="btn btn-primary" id="personModalSave"><i class="fa-solid fa-check"></i> Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ CONFIRM DIALOG ============ -->
+<div class="modal-backdrop" id="confirmBackdrop">
+  <div class="confirm-box">
+    <i class="fa-solid fa-triangle-exclamation"></i>
+    <h3 id="confirmTitle">¿Eliminar elemento?</h3>
+    <p id="confirmText">Esta acción no se puede deshacer.</p>
+    <div class="confirm-actions">
+      <button class="btn btn-secondary" id="confirmCancel">Cancelar</button>
+      <button class="btn btn-danger" id="confirmOk">Eliminar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TOASTS ============ -->
+<div class="toast-stack" id="toastStack"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
