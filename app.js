@@ -208,7 +208,9 @@ applyTheme(loadJSON(STORAGE_KEYS.theme, 'light'));
 document.getElementById('themeToggle').addEventListener('click', ()=>{
   const cur = document.body.getAttribute('data-theme');
   applyTheme(cur==='dark' ? 'light' : 'dark');
-  renderCharts(); // re-render charts para adaptarse a colores
+  if(window.ORONTES.renderCharts && document.getElementById('view-dashboard').classList.contains('active')){
+    window.ORONTES.renderCharts(); // re-render charts para adaptarse a colores
+  }
 });
 
 /* Sidebar colapsable */
@@ -250,11 +252,11 @@ function switchView(view){
   document.querySelectorAll('.nav-item').forEach(btn=>{
     btn.classList.toggle('active', btn.dataset.view===view);
   });
-  if(view==='calendar') safeRender(renderCalendar, document.getElementById('calContainer'));
-  if(view==='kanban') safeRender(renderKanban, document.getElementById('kanbanBoard'));
-  if(view==='list') safeRender(renderList, document.getElementById('listTableBody'));
-  if(view==='dashboard') safeRender(renderDashboard, document.getElementById('statGrid'));
-  if(view==='people') safeRender(renderPeople, document.getElementById('peopleGrid'));
+  if(view==='calendar') safeRender(()=>window.ORONTES.renderCalendar(), document.getElementById('calContainer'));
+  if(view==='kanban') safeRender(()=>window.ORONTES.renderKanban(), document.getElementById('kanbanBoard'));
+  if(view==='list') safeRender(()=>window.ORONTES.renderList(), document.getElementById('listTableBody'));
+  if(view==='dashboard') safeRender(()=>window.ORONTES.renderDashboard(), document.getElementById('statGrid'));
+  if(view==='people') safeRender(()=>window.ORONTES.renderPeople(), document.getElementById('peopleGrid'));
 }
 document.querySelectorAll('.nav-item').forEach(btn=>{
   btn.addEventListener('click', ()=> switchView(btn.dataset.view));
