@@ -90,8 +90,19 @@ let STATE = {
   pendingDeleteAction: null
 };
 
-if(!STATE.people){ STATE.people = seedPeople(); saveJSON(STORAGE_KEYS.people, STATE.people); }
-if(!STATE.tasks){ STATE.tasks = seedTasks(STATE.people); saveJSON(STORAGE_KEYS.tasks, STATE.tasks); }
+/* Blindaje: si los datos guardados están corruptos o no son arreglos válidos,
+   se restauran automáticamente para evitar pantallas en blanco. */
+if(!Array.isArray(STATE.people)){ STATE.people = seedPeople(); saveJSON(STORAGE_KEYS.people, STATE.people); }
+if(!Array.isArray(STATE.tasks)){ STATE.tasks = seedTasks(STATE.people); saveJSON(STORAGE_KEYS.tasks, STATE.tasks); }
+if(!Array.isArray(STATE.notifRead)) STATE.notifRead = [];
+if(!Array.isArray(STATE.activity)) STATE.activity = [];
+
+/* Restablecer todos los datos de fábrica (borra localStorage de Orontes y recarga) */
+window.resetOrontesData = function(){
+  Object.values(STORAGE_KEYS).forEach(k=> localStorage.removeItem(k));
+  localStorage.removeItem('orontes_backup');
+  location.reload();
+};
 
 function persistTasks(){ saveJSON(STORAGE_KEYS.tasks, STATE.tasks); }
 function persistPeople(){ saveJSON(STORAGE_KEYS.people, STATE.people); }
@@ -216,6 +227,22 @@ document.getElementById('collapseToggle').addEventListener('click', ()=>{
 
 /* Navegación entre vistas */
 const views = ['calendar','kanban','list','dashboard','people'];
+function safeRender(fn, containerEl){
+  try{
+    fn();
+  }catch(err){
+    console.error('Orontes · error al renderizar vista:', err);
+    if(containerEl){
+      containerEl.innerHTML = `<div class="empty-state">
+        <i class="fa-solid fa-triangle-exclamation" style="font-size:26px;color:var(--state-overdue);margin-bottom:10px;"></i>
+        <p>Ocurrió un problema al mostrar esta vista. Esto suele deberse a datos guardados dañados.</p>
+        <button class="btn btn-danger btn-sm" style="margin-top:12px;" onclick="if(confirm('Esto borrará todos los datos guardados en este navegador y volverá a los datos de ejemplo. ¿Continuar?')) resetOrontesData();">
+          <i class="fa-solid fa-arrows-rotate"></i> Restablecer datos
+        </button>
+      </div>`;
+    }
+  }
+}
 function switchView(view){
   views.forEach(v=>{
     document.getElementById('view-'+v).classList.toggle('active', v===view);
@@ -223,11 +250,11 @@ function switchView(view){
   document.querySelectorAll('.nav-item').forEach(btn=>{
     btn.classList.toggle('active', btn.dataset.view===view);
   });
-  if(view==='calendar') renderCalendar();
-  if(view==='kanban') renderKanban();
-  if(view==='list') renderList();
-  if(view==='dashboard') renderDashboard();
-  if(view==='people') renderPeople();
+  if(view==='calendar') safeRender(renderCalendar, document.getElementById('calContainer'));
+  if(view==='kanban') safeRender(renderKanban, document.getElementById('kanbanBoard'));
+  if(view==='list') safeRender(renderList, document.getElementById('listTableBody'));
+  if(view==='dashboard') safeRender(renderDashboard, document.getElementById('statGrid'));
+  if(view==='people') safeRender(renderPeople, document.getElementById('peopleGrid'));
 }
 document.querySelectorAll('.nav-item').forEach(btn=>{
   btn.addEventListener('click', ()=> switchView(btn.dataset.view));
@@ -1409,11 +1436,7 @@ const O = window.ORONTES;
 
 function refreshCurrentView(){
   const activeView = document.querySelector('.view.active').id.replace('view-','');
-  if(activeView==='calendar') O.renderCalendar();
-  if(activeView==='kanban') O.renderKanban();
-  if(activeView==='list') O.renderList();
-  if(activeView==='dashboard') O.renderDashboard();
-  if(activeView==='people') O.renderPeople();
+  O.switchView(activeView);
 }
 O.refreshCurrentView = refreshCurrentView;
 
@@ -1427,6 +1450,12 @@ document.addEventListener('keydown', (e)=>{
     document.querySelectorAll('.modal-backdrop.show').forEach(m=>m.classList.remove('show'));
     O.closeTaskDrawer();
     O.closeDayDrawer();
+  }
+});
+
+document.getElementById('resetDataBtn').addEventListener('click', ()=>{
+  if(confirm('Esto borrará todas las tareas y encargados guardados en este navegador, y volverá a los datos de ejemplo. ¿Continuar?')){
+    resetOrontesData();
   }
 });
 
