@@ -162,10 +162,13 @@ function getUrgencyState(task){
   if(!task.fechaTermino && !task.fechaInicio) return {key:'progress', label:'En proceso', fg:'#5D7C8A', bg:'var(--state-progress-bg)'};
   const due = parseDate(task.fechaTermino || task.fechaInicio);
   const now = parseDate(todayStr());
+  // diff = días entre la fecha de vencimiento y hoy (due - now).
+  // Negativo = la fecha de vencimiento ya pasó (atrasada).
+  // Cero = vence hoy. Uno = vence mañana. Mayor a uno = aún falta.
   const diff = daysBetween(due, now);
-  if(diff > 0) return {key:'overdue', label:'Vencida', fg:'#B5654F', bg:'var(--state-overdue-bg)'};
+  if(diff < 0) return {key:'overdue', label:'Vencida', fg:'#B5654F', bg:'var(--state-overdue-bg)'};
   if(diff === 0) return {key:'today', label:'Vence hoy', fg:'#C08A4E', bg:'var(--state-today-bg)'};
-  if(diff === -1) return {key:'tomorrow', label:'Vence mañana', fg:'#BFA246', bg:'var(--state-tomorrow-bg)'};
+  if(diff === 1) return {key:'tomorrow', label:'Vence mañana', fg:'#BFA246', bg:'var(--state-tomorrow-bg)'};
   if(task.estado === 'progreso') return {key:'progress', label:'En proceso', fg:'#5D7C8A', bg:'var(--state-progress-bg)'};
   return {key:'pending', label:'Pendiente', fg:'#8B7FA6', bg:'var(--state-waiting-bg)'};
 }
