@@ -109,6 +109,10 @@
         <div class="view-header">
           <div class="view-title"><h2>Lista de tareas</h2><span id="listSubtitle">0 tareas</span></div>
           <div class="view-actions">
+            <div class="view-switch" id="listSortSwitch">
+              <button data-sort="fecha" class="active">Ordenar: Fecha</button>
+              <button data-sort="urgencia">Ordenar: Urgencia</button>
+            </div>
             <button class="btn btn-secondary btn-sm" id="exportJsonBtn"><i class="fa-solid fa-file-code"></i> JSON</button>
             <button class="btn btn-secondary btn-sm" id="exportCsvBtn"><i class="fa-solid fa-file-csv"></i> CSV</button>
             <button class="btn btn-secondary btn-sm" id="exportPdfBtn"><i class="fa-solid fa-file-pdf"></i> PDF</button>
@@ -123,7 +127,7 @@
           <table class="list-table">
             <thead>
               <tr>
-                <th>Tarea</th><th>Responsable</th><th>Fecha</th><th>Prioridad</th><th>Estado</th><th>Etiquetas</th>
+                <th>Tarea</th><th>Encargado</th><th>Comentario</th><th>Fecha</th><th>Urgencia</th><th>Etiquetas</th>
               </tr>
             </thead>
             <tbody id="listTableBody"></tbody>

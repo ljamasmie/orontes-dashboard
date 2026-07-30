@@ -81,6 +81,7 @@ let STATE = {
   activity: loadJSON(STORAGE_KEYS.activity, []),
   calMode: 'month',
   calDate: new Date(),
+  listSort: 'fecha',
   filters: { responsable:'', estado:'', prioridad:'', categoria:'', etiqueta:'' },
   search: '',
   editingTaskId: null,
@@ -172,6 +173,12 @@ function getUrgencyState(task){
   if(task.estado === 'progreso') return {key:'progress', label:'En proceso', fg:'#5D7C8A', bg:'var(--state-progress-bg)'};
   return {key:'pending', label:'Pendiente', fg:'#8B7FA6', bg:'var(--state-waiting-bg)'};
 }
+
+/* Búsquedas seguras: si una tarea tiene un valor de prioridad/estado inválido
+   o vacío (por ejemplo, por una importación con datos incompletos), devolvemos
+   un valor neutro en vez de lanzar un error que rompa toda la vista. */
+function getPriorityMeta(key){ return PRIORIDADES[key] || {label:'Sin definir', color:'#A9A48F'}; }
+function getEstadoMeta(key){ return ESTADOS[key] || {label:'Sin definir', color:'var(--text-3)', bg:'var(--surface-2)', fg:'#8B8F92'}; }
 
 function escapeHtml(str){
   const div = document.createElement('div');
@@ -304,6 +311,7 @@ document.getElementById('confirmOk').addEventListener('click', ()=>{
 
 window.ORONTES = { STATE, STORAGE_KEYS, PALETTE, saveJSON, loadJSON, uid, todayStr, parseDate, fmtDateHuman, toISODate,
   daysBetween, getPerson, getPersonName, getPersonColor, initials, ESTADOS, PRIORIDADES, getUrgencyState,
+  getPriorityMeta, getEstadoMeta,
   escapeHtml, persistTasks, persistPeople, persistActivity, toast, askConfirm, switchView, brandMarkSVG };
 
 })();
@@ -627,10 +635,10 @@ function duplicateTask(id){
 }
 function changeTaskStatus(id, estado){
   const t = STATE.tasks.find(x=>x.id===id);
-  const prevLabel = O.ESTADOS[t.estado].label;
+  const prevLabel = O.getEstadoMeta(t.estado).label;
   t.estado = estado;
   persistTasks();
-  logActivity(`<b>${O.escapeHtml(t.nombre)}</b> cambió de "${prevLabel}" a "${O.ESTADOS[estado].label}"`, 'fa-shuffle');
+  logActivity(`<b>${O.escapeHtml(t.nombre)}</b> cambió de "${prevLabel}" a "${O.getEstadoMeta(estado).label}"`, 'fa-shuffle');
   toast('Estado actualizado', 'success', 'fa-circle-check');
   O.refreshCurrentView();
   O.renderNotifications && O.renderNotifications();
@@ -708,7 +716,7 @@ function openTaskDrawer(taskId){
       </div>
       <div class="detail-meta-item">
         <label>Prioridad</label>
-        <span class="chip" style="background:${O.PRIORIDADES[t.prioridad].color}22;color:${O.PRIORIDADES[t.prioridad].color};"><span class="dot" style="background:${O.PRIORIDADES[t.prioridad].color};"></span> ${O.PRIORIDADES[t.prioridad].label}</span>
+        <span class="chip" style="background:${O.getPriorityMeta(t.prioridad).color}22;color:${O.getPriorityMeta(t.prioridad).color};"><span class="dot" style="background:${O.getPriorityMeta(t.prioridad).color};"></span> ${O.getPriorityMeta(t.prioridad).label}</span>
       </div>
     </div>
 
@@ -1150,7 +1158,7 @@ function kanbanCardHtml(t){
   return `<div class="kanban-card" draggable="true" data-id="${t.id}" style="border-left-color:${t.color||'var(--brand-accent)'};">
     <div class="kc-title-row">
       <h4>${O.escapeHtml(t.nombre)}</h4>
-      <span class="chip" style="background:${O.PRIORIDADES[t.prioridad].color}22;color:${O.PRIORIDADES[t.prioridad].color};padding:2px 7px;">${O.PRIORIDADES[t.prioridad].label}</span>
+      <span class="chip" style="background:${O.getPriorityMeta(t.prioridad).color}22;color:${O.getPriorityMeta(t.prioridad).color};padding:2px 7px;">${O.getPriorityMeta(t.prioridad).label}</span>
     </div>
     <div class="kc-desc">${O.escapeHtml(t.descripcion||'Sin descripción')}</div>
     <div class="kc-meta">
@@ -1200,9 +1208,44 @@ O.renderKanban = renderKanban;
 const O = window.ORONTES;
 const { STATE } = O;
 
+/* Rango de urgencia usado para poder ordenar de más a menos urgente */
+const URGENCY_RANK = {overdue:0, today:1, tomorrow:2, progress:3, pending:4, done:5, cancelled:6};
+
+/* Formatea el rango de fechas de una tarea. Si inicio y término son el mismo
+   día, muestra solo esa fecha. Si abarca varios días, muestra "DD/MM al DD/MM". */
+function fmtDateRange(t){
+  const ini = t.fechaInicio, fin = t.fechaTermino || t.fechaInicio;
+  if(ini === fin) return O.fmtDateHuman(ini) + (t.hora ? ` · ${t.hora}` : '');
+  const d1 = O.parseDate(ini), d2 = O.parseDate(fin);
+  const f = (d)=> `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+  const sameYear = d1.getFullYear() === d2.getFullYear();
+  return `${f(d1)} al ${f(d2)}${sameYear ? '' : '/'+d2.getFullYear()}`;
+}
+
+/* Última nota/comentario de la tarea, recortada para la tabla */
+function lastCommentPreview(t){
+  if(!t.comentarios || !t.comentarios.length) return '<span style="color:var(--text-3);">Sin comentarios</span>';
+  const c = t.comentarios[t.comentarios.length-1];
+  const texto = c.texto.length > 46 ? c.texto.slice(0,46)+'…' : c.texto;
+  const extra = t.comentarios.length > 1 ? ` <span style="color:var(--text-3);">(+${t.comentarios.length-1})</span>` : '';
+  return `<span title="${O.escapeHtml(c.texto)}">${O.escapeHtml(texto)}</span>${extra}`;
+}
+
 function renderList(){
   O.buildFilterBar('listFilters');
-  const tasks = O.applyFilters(STATE.tasks).sort((a,b)=> a.fechaInicio.localeCompare(b.fechaInicio));
+  let tasks = O.applyFilters(STATE.tasks);
+
+  if(STATE.listSort === 'urgencia'){
+    tasks = tasks.sort((a,b)=>{
+      const ra = URGENCY_RANK[O.getUrgencyState(a).key] ?? 9;
+      const rb = URGENCY_RANK[O.getUrgencyState(b).key] ?? 9;
+      if(ra !== rb) return ra - rb;
+      return a.fechaInicio.localeCompare(b.fechaInicio);
+    });
+  } else {
+    tasks = tasks.sort((a,b)=> a.fechaInicio.localeCompare(b.fechaInicio));
+  }
+
   document.getElementById('listSubtitle').textContent = `${tasks.length} tarea(s)`;
   const tbody = document.getElementById('listTableBody');
   if(!tasks.length){
@@ -1215,8 +1258,8 @@ function renderList(){
     return `<tr data-id="${t.id}">
       <td><b>${O.escapeHtml(t.nombre)}</b><div style="font-size:11px;color:var(--text-3);margin-top:2px;">${O.escapeHtml(t.categoria||'')}</div></td>
       <td>${p ? `<div class="person-cell"><span class="avatar" style="background:${p.color};width:24px;height:24px;font-size:9.5px;">${O.initials(p.nombre)}</span>${O.escapeHtml(p.nombre)}</div>` : '<span style="color:var(--text-3);">Sin asignar</span>'}</td>
-      <td>${O.fmtDateHuman(t.fechaInicio)}${t.hora?` · ${t.hora}`:''}</td>
-      <td><span class="chip" style="background:${O.PRIORIDADES[t.prioridad].color}22;color:${O.PRIORIDADES[t.prioridad].color};"><span class="dot" style="background:${O.PRIORIDADES[t.prioridad].color};"></span>${O.PRIORIDADES[t.prioridad].label}</span></td>
+      <td style="max-width:220px;">${lastCommentPreview(t)}</td>
+      <td>${fmtDateRange(t)}</td>
       <td><span class="chip" style="background:${urgency.bg};color:${urgency.fg};"><span class="dot" style="background:${urgency.fg};"></span>${urgency.label}</span></td>
       <td>${(t.etiquetas||[]).map(tag=>`<span class="tag" style="margin-right:4px;">#${O.escapeHtml(tag)}</span>`).join('')}</td>
     </tr>`;
@@ -1224,6 +1267,12 @@ function renderList(){
   tbody.querySelectorAll('tr[data-id]').forEach(tr=> tr.addEventListener('click', ()=> O.openTaskDrawer(tr.dataset.id)));
 }
 O.renderList = renderList;
+document.getElementById('listSortSwitch').addEventListener('click', (e)=>{
+  const btn = e.target.closest('button'); if(!btn) return;
+  STATE.listSort = btn.dataset.sort;
+  document.querySelectorAll('#listSortSwitch button').forEach(b=>b.classList.toggle('active', b===btn));
+  renderList();
+});
 })();
 
 /* ============================================================
@@ -1288,7 +1337,7 @@ function renderCharts(){
         if(!elements.length) return;
         const key = estadoKeys[elements[0].index];
         const matching = tasks.filter(t=>t.estado===key);
-        O.openTaskListDrawer(`Estado: ${O.ESTADOS[key].label}`, matching, {showAddButton:false});
+        O.openTaskListDrawer(`Estado: ${O.getEstadoMeta(key).label}`, matching, {showAddButton:false});
       },
       onHover:(evt, elements)=>{ evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; }
     }
@@ -1309,7 +1358,7 @@ function renderCharts(){
         if(!elements.length) return;
         const key = prKeys[elements[0].index];
         const matching = tasks.filter(t=>t.prioridad===key);
-        O.openTaskListDrawer(`Prioridad: ${O.PRIORIDADES[key].label}`, matching, {showAddButton:false});
+        O.openTaskListDrawer(`Prioridad: ${O.getPriorityMeta(key).label}`, matching, {showAddButton:false});
       },
       onHover:(evt, elements)=>{ evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; }
     }
@@ -1426,7 +1475,7 @@ function tasksToCSV(){
   const headers = ['Nombre','Descripcion','Responsable','FechaInicio','FechaTermino','Hora','Prioridad','Estado','Categoria','Etiquetas'];
   const rows = STATE.tasks.map(t=> [
     t.nombre, t.descripcion, O.getPersonName(t.responsable), t.fechaInicio, t.fechaTermino||'', t.hora||'',
-    O.PRIORIDADES[t.prioridad].label, O.ESTADOS[t.estado].label, t.categoria||'', (t.etiquetas||[]).join('|')
+    O.getPriorityMeta(t.prioridad).label, O.getEstadoMeta(t.estado).label, t.categoria||'', (t.etiquetas||[]).join('|')
   ].map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(','));
   return [headers.join(','), ...rows].join('\n');
 }
@@ -1450,7 +1499,7 @@ document.getElementById('exportPdfBtn').addEventListener('click', ()=>{
     <h1>ORONTES - Listado de tareas</h1>
     <p style="color:#8B8F92;font-size:12px;">Generado el ${new Date().toLocaleString('es-CL')}</p>
     <table><thead><tr><th>Tarea</th><th>Responsable</th><th>Fecha</th><th>Prioridad</th><th>Estado</th></tr></thead><tbody>
-    ${tasks.map(t=>`<tr><td>${O.escapeHtml(t.nombre)}</td><td>${O.escapeHtml(O.getPersonName(t.responsable))}</td><td>${t.fechaInicio}</td><td>${O.PRIORIDADES[t.prioridad].label}</td><td>${O.ESTADOS[t.estado].label}</td></tr>`).join('')}
+    ${tasks.map(t=>`<tr><td>${O.escapeHtml(t.nombre)}</td><td>${O.escapeHtml(O.getPersonName(t.responsable))}</td><td>${t.fechaInicio}</td><td>${O.getPriorityMeta(t.prioridad).label}</td><td>${O.getEstadoMeta(t.estado).label}</td></tr>`).join('')}
     </tbody></table>
     </body></html>`);
   win.document.close();
