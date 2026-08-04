@@ -1,21 +1,11 @@
 /* ============================================================
-   ORONTES · DASHBOARD DE GESTIÓN DE TAREAS Y CALENDARIO
+   ORONTES · SEGUIMIENTO DE TAREAS (versión simplificada)
    JavaScript Vanilla — sin backend, persistencia en LocalStorage
    ============================================================
-   Índice:
-   1. Datos y almacenamiento (Storage)
-   2. Utilidades generales
-   3. Marca / reloj / tema / sidebar
-   4. Gestión de encargados (personas)
-   5. Gestión de tareas (CRUD, comentarios, actividad)
-   6. Notificaciones
-   7. Render: Calendario (mes/semana/día)
-   8. Render: Kanban
-   9. Render: Lista
-   10. Render: Dashboard (Chart.js)
-   11. Buscador y filtros
-   12. Exportar / Importar
-   13. Inicialización
+   Vistas: Tareas (lista) · Dashboard · Encargados
+   Cada tarea: nombre, notas, encargado, fecha inicio, fecha término,
+   estado (Pendiente / Completado). La "urgencia" (Vencida / Pendiente /
+   Completada) se calcula automáticamente a partir de la fecha término.
    ============================================================ */
 
 (function(){
@@ -25,104 +15,76 @@
    1. DATOS Y ALMACENAMIENTO
    ============================================================ */
 const STORAGE_KEYS = {
-  tasks: 'orontes_tasks',
-  people: 'orontes_people',
-  notifRead: 'orontes_notif_read',
+  tasks: 'orontes_tasks_v2',
+  people: 'orontes_people_v2',
   theme: 'orontes_theme',
-  sidebarCollapsed: 'orontes_sidebar_collapsed',
-  activity: 'orontes_activity'
+  sidebarCollapsed: 'orontes_sidebar_collapsed'
 };
 
 const PALETTE = ['#4A4F54','#B5654F','#C08A4E','#BFA246','#6F8F72','#5D7C8A','#8B7FA6','#A9A48F','#7C8B99','#B08968'];
 
 function loadJSON(key, fallback){
-  try{
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  }catch(e){ return fallback; }
+  try{ const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
+  catch(e){ return fallback; }
 }
 function saveJSON(key, value){
   try{ localStorage.setItem(key, JSON.stringify(value)); }catch(e){ console.error('Error guardando', key, e); }
 }
-
 function uid(prefix){ return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
-/* ---- Datos semilla (se cargan solo la primera vez) ---- */
 function seedPeople(){
   return [
-    {id:uid('p'), nombre:'Dra. Camila Rojas', cargo:'Odontóloga General', email:'camila@orontesodontologia.cl', color:PALETTE[0]},
-    {id:uid('p'), nombre:'Dr. Matías Fuentes', cargo:'Especialista en Estética', email:'matias@orontesodontologia.cl', color:PALETTE[1]},
-    {id:uid('p'), nombre:'Valentina Soto', cargo:'Recepción', email:'valentina@orontesodontologia.cl', color:PALETTE[4]},
-    {id:uid('p'), nombre:'Ignacio Pérez', cargo:'Asistente Dental', email:'ignacio@orontesodontologia.cl', color:PALETTE[5]}
+    {id:uid('p'), nombre:'Camila Rojas', cargo:'KAM', email:'camila@empresa.cl', color:PALETTE[0]},
+    {id:uid('p'), nombre:'Matías Fuentes', cargo:'Backoffice', email:'matias@empresa.cl', color:PALETTE[1]},
+    {id:uid('p'), nombre:'Valentina Soto', cargo:'Comercial', email:'valentina@empresa.cl', color:PALETTE[4]},
+    {id:uid('p'), nombre:'Ignacio Pérez', cargo:'Operaciones', email:'ignacio@empresa.cl', color:PALETTE[5]}
   ];
 }
-
 function seedTasks(people){
-  const today = new Date();
-  const fmt = (d)=> `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  const addDays = (n)=>{ const d = new Date(today); d.setDate(d.getDate()+n); return fmt(d); };
   const p = people;
+  const addDays = (n)=>{ const d = new Date(); d.setDate(d.getDate()+n); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
   return [
-    {id:uid('t'), nombre:'Control post-operatorio · Paciente Herrera', descripcion:'Revisión de cicatrización tras extracción de muela del juicio.', fechaInicio:addDays(0), fechaTermino:addDays(0), hora:'10:30', responsable:p[0].id, estado:'pendiente', prioridad:'alta', categoria:'Clínico', etiquetas:['control','cirugía'], color:PALETTE[0], comentarios:[], adjuntos:[]},
-    {id:uid('t'), nombre:'Whitening estético · Sesión 2', descripcion:'Segunda sesión de blanqueamiento dental profesional.', fechaInicio:addDays(0), fechaTermino:addDays(0), hora:'16:00', responsable:p[1].id, estado:'progreso', prioridad:'media', categoria:'Estética', etiquetas:['blanqueamiento'], color:PALETTE[1], comentarios:[], adjuntos:[]},
-    {id:uid('t'), nombre:'Confirmar hora paciente Muñoz', descripcion:'Llamar para confirmar asistencia de mañana.', fechaInicio:addDays(1), fechaTermino:addDays(1), hora:'09:00', responsable:p[2].id, estado:'pendiente', prioridad:'urgente', categoria:'Administrativo', etiquetas:['agenda'], color:PALETTE[4], comentarios:[], adjuntos:[]},
-    {id:uid('t'), nombre:'Pedido de insumos clínicos', descripcion:'Reponer guantes, anestesia y resinas.', fechaInicio:addDays(-1), fechaTermino:addDays(-1), hora:'', responsable:p[3].id, estado:'pendiente', prioridad:'alta', categoria:'Administrativo', etiquetas:['insumos'], color:PALETTE[5], comentarios:[], adjuntos:[]},
-    {id:uid('t'), nombre:'Diseño de sonrisa · Consulta inicial', descripcion:'Primera evaluación estética con fotografías.', fechaInicio:addDays(2), fechaTermino:addDays(2), hora:'11:15', responsable:p[1].id, estado:'espera', prioridad:'media', categoria:'Estética', etiquetas:['diseño-sonrisa'], color:PALETTE[1], comentarios:[], adjuntos:[]},
-    {id:uid('t'), nombre:'Limpieza dental · Paciente López', descripcion:'Profilaxis semestral.', fechaInicio:addDays(-3), fechaTermino:addDays(-3), hora:'', responsable:p[0].id, estado:'completada', prioridad:'baja', categoria:'Clínico', etiquetas:['profilaxis'], color:PALETTE[0], comentarios:[], adjuntos:[]},
-    {id:uid('t'), nombre:'Actualizar ficha clínica digital', descripcion:'Migrar fichas de papel al sistema digital.', fechaInicio:addDays(5), fechaTermino:addDays(7), hora:'', responsable:p[2].id, estado:'pendiente', prioridad:'baja', categoria:'Administrativo', etiquetas:['fichas'], color:PALETTE[4], comentarios:[], adjuntos:[]},
-    {id:uid('t'), nombre:'Reunión de equipo semanal', descripcion:'Revisión de agenda e indicadores de la semana.', fechaInicio:addDays(3), fechaTermino:addDays(3), hora:'08:30', responsable:p[3].id, estado:'pendiente', prioridad:'media', categoria:'Interno', etiquetas:['reunión'], color:PALETTE[5], comentarios:[], adjuntos:[]}
+    {id:uid('t'), nombre:'Lanzar campaña "18" (bundle + deadline de pedido)', descripcion:'Coordinar con Back el armado del bundle.', responsable:p[0].id, fechaInicio:addDays(0), fechaTermino:addDays(3), estado:'pendiente'},
+    {id:uid('t'), nombre:'Demos a 5 cuentas prioritarias', descripcion:'', responsable:p[2].id, fechaInicio:addDays(-2), fechaTermino:addDays(2), estado:'pendiente'},
+    {id:uid('t'), nombre:'Preparar battlecard comparativo', descripcion:'Validar tratamiento tributario con Back.', responsable:p[1].id, fechaInicio:addDays(-5), fechaTermino:addDays(-1), estado:'pendiente'},
+    {id:uid('t'), nombre:'Reactivar cuentas dormidas', descripcion:'', responsable:p[0].id, fechaInicio:addDays(-1), fechaTermino:addDays(4), estado:'pendiente'},
+    {id:uid('t'), nombre:'Segmentar cartera de clientes por área', descripcion:'', responsable:p[3].id, fechaInicio:addDays(-10), fechaTermino:addDays(-6), estado:'completada'},
+    {id:uid('t'), nombre:'Análisis de cuentas traspasadas', descripcion:'', responsable:p[1].id, fechaInicio:addDays(-8), fechaTermino:addDays(-4), estado:'completada'},
+    {id:uid('t'), nombre:'Validar estrategia de partners con CCO', descripcion:'', responsable:p[2].id, fechaInicio:addDays(1), fechaTermino:addDays(6), estado:'pendiente'},
+    {id:uid('t'), nombre:'Levantar información de ventas por rubro', descripcion:'', responsable:p[0].id, fechaInicio:addDays(2), fechaTermino:addDays(9), estado:'pendiente'}
   ];
 }
 
 let STATE = {
   people: loadJSON(STORAGE_KEYS.people, null),
   tasks: loadJSON(STORAGE_KEYS.tasks, null),
-  notifRead: loadJSON(STORAGE_KEYS.notifRead, []),
-  activity: loadJSON(STORAGE_KEYS.activity, []),
-  calMode: 'month',
-  calDate: new Date(),
   listSort: 'fecha',
-  filters: { responsable:'', estado:'', prioridad:'', categoria:'', etiqueta:'' },
+  filters: { responsable:'', estado:'' },
   search: '',
-  editingTaskId: null,
-  editingPersonId: null,
-  tempTags: [],
-  tempFiles: [],
   pendingDeleteAction: null
 };
 
-/* Blindaje: si los datos guardados están corruptos o no son arreglos válidos,
-   se restauran automáticamente para evitar pantallas en blanco. */
 if(!Array.isArray(STATE.people)){ STATE.people = seedPeople(); saveJSON(STORAGE_KEYS.people, STATE.people); }
 if(!Array.isArray(STATE.tasks)){ STATE.tasks = seedTasks(STATE.people); saveJSON(STORAGE_KEYS.tasks, STATE.tasks); }
-if(!Array.isArray(STATE.notifRead)) STATE.notifRead = [];
-if(!Array.isArray(STATE.activity)) STATE.activity = [];
-
-/* Restablecer todos los datos de fábrica (borra localStorage de Orontes y recarga) */
-window.resetOrontesData = function(){
-  Object.values(STORAGE_KEYS).forEach(k=> localStorage.removeItem(k));
-  localStorage.removeItem('orontes_backup');
-  location.reload();
-};
 
 function persistTasks(){ saveJSON(STORAGE_KEYS.tasks, STATE.tasks); }
 function persistPeople(){ saveJSON(STORAGE_KEYS.people, STATE.people); }
-function persistActivity(){ saveJSON(STORAGE_KEYS.activity, STATE.activity.slice(0,60)); }
 
-/* Sistema de backup automático: cada 30s serializa todo a una key de respaldo */
-setInterval(()=>{
-  saveJSON('orontes_backup', {tasks:STATE.tasks, people:STATE.people, ts:Date.now()});
-}, 30000);
+/* Backup automático cada 30s */
+setInterval(()=>{ saveJSON('orontes_backup_v2', {tasks:STATE.tasks, people:STATE.people, ts:Date.now()}); }, 30000);
+
+window.resetOrontesData = function(){
+  Object.values(STORAGE_KEYS).forEach(k=> localStorage.removeItem(k));
+  localStorage.removeItem('orontes_backup_v2');
+  location.reload();
+};
 
 /* ============================================================
    2. UTILIDADES GENERALES
    ============================================================ */
 function pad2(n){ return n.toString().padStart(2,'0'); }
-/* IMPORTANTE: nunca usar Date.toISOString() para obtener "la fecha de hoy" o
-   formatear fechas locales — convierte a UTC y puede devolver el día
-   equivocado según la zona horaria del usuario (ej: en Chile, de noche,
-   toISOString() puede adelantar la fecha un día). Siempre usamos los
-   componentes locales del objeto Date. */
+/* Nunca usar Date.toISOString() para fechas locales: convierte a UTC y
+   puede devolver el día equivocado según la zona horaria del usuario. */
 function toISODate(d){ return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
 function todayStr(){ return toISODate(new Date()); }
 function parseDate(str){ if(!str) return null; const [y,m,d] = str.split('-').map(Number); return new Date(y, m-1, d); }
@@ -143,42 +105,24 @@ function initials(name){
 }
 
 const ESTADOS = {
-  pendiente:{label:'Pendiente', color:'var(--state-waiting)', bg:'var(--state-waiting-bg)', fg:'#8B7FA6'},
-  progreso:{label:'En proceso', color:'var(--state-progress)', bg:'var(--state-progress-bg)', fg:'#5D7C8A'},
-  espera:{label:'Esperando información', color:'var(--state-tomorrow)', bg:'var(--state-tomorrow-bg)', fg:'#BFA246'},
-  completada:{label:'Completada', color:'var(--state-done)', bg:'var(--state-done-bg)', fg:'#6F8F72'},
-  cancelada:{label:'Cancelada', color:'var(--state-cancelled)', bg:'var(--state-cancelled-bg)', fg:'#9A9A94'}
+  pendiente:{label:'Pendiente'},
+  completada:{label:'Completado'}
 };
-const PRIORIDADES = {
-  baja:{label:'Baja', color:'#8FA5A0'},
-  media:{label:'Media', color:'#C9A85F'},
-  alta:{label:'Alta', color:'#C0784F'},
-  urgente:{label:'Urgente', color:'#B5504A'}
-};
+function getEstadoMeta(key){ return ESTADOS[key] || {label:'Sin definir'}; }
 
-/* Determina el "color de vencimiento" visual de una tarea según reglas del negocio */
+/* Estado visual derivado: si está "completada" se muestra verde. Si está
+   "pendiente" y ya pasó la fecha término, se muestra "Vencida" (rojo).
+   Si está pendiente y vence hoy/mañana, aviso naranja/amarillo. Si no, neutro. */
 function getUrgencyState(task){
-  if(task.estado === 'completada') return {key:'done', label:'Completada', fg:'#6F8F72', bg:'var(--state-done-bg)'};
-  if(task.estado === 'cancelada') return {key:'cancelled', label:'Cancelada', fg:'#9A9A94', bg:'var(--state-cancelled-bg)'};
-  if(!task.fechaTermino && !task.fechaInicio) return {key:'progress', label:'En proceso', fg:'#5D7C8A', bg:'var(--state-progress-bg)'};
+  if(task.estado === 'completada') return {key:'done', label:'Completado', fg:'#6F8F72', bg:'var(--state-done-bg)'};
   const due = parseDate(task.fechaTermino || task.fechaInicio);
   const now = parseDate(todayStr());
-  // diff = días entre la fecha de vencimiento y hoy (due - now).
-  // Negativo = la fecha de vencimiento ya pasó (atrasada).
-  // Cero = vence hoy. Uno = vence mañana. Mayor a uno = aún falta.
-  const diff = daysBetween(due, now);
+  const diff = daysBetween(due, now); // due - now: negativo = ya pasó
   if(diff < 0) return {key:'overdue', label:'Vencida', fg:'#B5654F', bg:'var(--state-overdue-bg)'};
   if(diff === 0) return {key:'today', label:'Vence hoy', fg:'#C08A4E', bg:'var(--state-today-bg)'};
   if(diff === 1) return {key:'tomorrow', label:'Vence mañana', fg:'#BFA246', bg:'var(--state-tomorrow-bg)'};
-  if(task.estado === 'progreso') return {key:'progress', label:'En proceso', fg:'#5D7C8A', bg:'var(--state-progress-bg)'};
   return {key:'pending', label:'Pendiente', fg:'#8B7FA6', bg:'var(--state-waiting-bg)'};
 }
-
-/* Búsquedas seguras: si una tarea tiene un valor de prioridad/estado inválido
-   o vacío (por ejemplo, por una importación con datos incompletos), devolvemos
-   un valor neutro en vez de lanzar un error que rompa toda la vista. */
-function getPriorityMeta(key){ return PRIORIDADES[key] || {label:'Sin definir', color:'#A9A48F'}; }
-function getEstadoMeta(key){ return ESTADOS[key] || {label:'Sin definir', color:'var(--text-3)', bg:'var(--surface-2)', fg:'#8B8F92'}; }
 
 function escapeHtml(str){
   const div = document.createElement('div');
@@ -190,7 +134,6 @@ function escapeHtml(str){
    3. MARCA / RELOJ / TEMA / SIDEBAR
    ============================================================ */
 function brandMarkSVG(size, color){
-  // Recreación del isotipo Orontes: anillo roto en tres arcos, estilo geométrico.
   return `<svg width="${size}" height="${size}" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path d="M50 8 A42 42 0 0 1 88 45" stroke="${color}" stroke-width="11" stroke-linecap="round"/>
     <path d="M14 58 A42 42 0 0 1 33 15" stroke="${color}" stroke-width="11" stroke-linecap="round"/>
@@ -199,7 +142,6 @@ function brandMarkSVG(size, color){
 }
 document.getElementById('brandMarkSidebar').innerHTML = brandMarkSVG(26, '#C9C5B6');
 
-/* Reloj en tiempo real */
 function tickClock(){
   const now = new Date();
   const dias = ['dom','lun','mar','mié','jue','vie','sáb'];
@@ -211,7 +153,6 @@ function tickClock(){
 setInterval(tickClock, 1000);
 tickClock();
 
-/* Tema claro/oscuro */
 function applyTheme(theme){
   document.body.setAttribute('data-theme', theme);
   saveJSON(STORAGE_KEYS.theme, theme);
@@ -225,11 +166,10 @@ document.getElementById('themeToggle').addEventListener('click', ()=>{
   const cur = document.body.getAttribute('data-theme');
   applyTheme(cur==='dark' ? 'light' : 'dark');
   if(window.ORONTES.renderCharts && document.getElementById('view-dashboard').classList.contains('active')){
-    window.ORONTES.renderCharts(); // re-render charts para adaptarse a colores
+    window.ORONTES.renderCharts();
   }
 });
 
-/* Sidebar colapsable */
 function applySidebarState(collapsed){
   document.getElementById('sidebar').classList.toggle('collapsed', collapsed);
   saveJSON(STORAGE_KEYS.sidebarCollapsed, collapsed);
@@ -243,12 +183,17 @@ document.getElementById('collapseToggle').addEventListener('click', ()=>{
   applySidebarState(!document.getElementById('sidebar').classList.contains('collapsed'));
 });
 
+document.getElementById('resetDataBtn').addEventListener('click', ()=>{
+  if(confirm('Esto borrará todas las tareas y encargados guardados en este navegador, y volverá a los datos de ejemplo. ¿Continuar?')){
+    resetOrontesData();
+  }
+});
+
 /* Navegación entre vistas */
-const views = ['calendar','kanban','list','dashboard','people'];
+const views = ['list','dashboard','people'];
 function safeRender(fn, containerEl){
-  try{
-    fn();
-  }catch(err){
+  try{ fn(); }
+  catch(err){
     console.error('Orontes · error al renderizar vista:', err);
     if(containerEl){
       containerEl.innerHTML = `<div class="empty-state">
@@ -262,21 +207,18 @@ function safeRender(fn, containerEl){
   }
 }
 function switchView(view){
-  views.forEach(v=>{
-    document.getElementById('view-'+v).classList.toggle('active', v===view);
-  });
-  document.querySelectorAll('.nav-item').forEach(btn=>{
-    btn.classList.toggle('active', btn.dataset.view===view);
-  });
-  if(view==='calendar') safeRender(()=>window.ORONTES.renderCalendar(), document.getElementById('calContainer'));
-  if(view==='kanban') safeRender(()=>window.ORONTES.renderKanban(), document.getElementById('kanbanBoard'));
+  views.forEach(v=> document.getElementById('view-'+v).classList.toggle('active', v===view));
+  document.querySelectorAll('.nav-item').forEach(btn=> btn.classList.toggle('active', btn.dataset.view===view));
   if(view==='list') safeRender(()=>window.ORONTES.renderList(), document.getElementById('listTableBody'));
   if(view==='dashboard') safeRender(()=>window.ORONTES.renderDashboard(), document.getElementById('statGrid'));
   if(view==='people') safeRender(()=>window.ORONTES.renderPeople(), document.getElementById('peopleGrid'));
 }
-document.querySelectorAll('.nav-item').forEach(btn=>{
-  btn.addEventListener('click', ()=> switchView(btn.dataset.view));
-});
+document.querySelectorAll('.nav-item').forEach(btn=> btn.addEventListener('click', ()=> switchView(btn.dataset.view)));
+
+function refreshCurrentView(){
+  const activeView = document.querySelector('.view.active').id.replace('view-','');
+  switchView(activeView);
+}
 
 /* ============================================================
    TOASTS
@@ -310,37 +252,17 @@ document.getElementById('confirmOk').addEventListener('click', ()=>{
 });
 
 window.ORONTES = { STATE, STORAGE_KEYS, PALETTE, saveJSON, loadJSON, uid, todayStr, parseDate, fmtDateHuman, toISODate,
-  daysBetween, getPerson, getPersonName, getPersonColor, initials, ESTADOS, PRIORIDADES, getUrgencyState,
-  getPriorityMeta, getEstadoMeta,
-  escapeHtml, persistTasks, persistPeople, persistActivity, toast, askConfirm, switchView, brandMarkSVG };
+  daysBetween, getPerson, getPersonName, getPersonColor, initials, ESTADOS, getEstadoMeta, getUrgencyState,
+  escapeHtml, persistTasks, persistPeople, toast, askConfirm, switchView, refreshCurrentView, brandMarkSVG };
 
 })();
 
 /* ============================================================
-   4. ACTIVIDAD (historial automático)
-   ============================================================ */
-(function(){
-const { STATE, persistActivity } = window.ORONTES;
-window.ORONTES.logActivity = function(text, icon){
-  STATE.activity.unshift({id:'a_'+Date.now(), text, icon: icon||'fa-circle-info', ts: Date.now()});
-  STATE.activity = STATE.activity.slice(0,80);
-  persistActivity();
-};
-window.ORONTES.timeAgo = function(ts){
-  const diff = Math.floor((Date.now()-ts)/1000);
-  if(diff<60) return 'hace instantes';
-  if(diff<3600) return `hace ${Math.floor(diff/60)} min`;
-  if(diff<86400) return `hace ${Math.floor(diff/3600)} h`;
-  return `hace ${Math.floor(diff/86400)} d`;
-};
-})();
-
-/* ============================================================
-   5. GESTIÓN DE ENCARGADOS (PERSONAS)
+   4. GESTIÓN DE ENCARGADOS (PERSONAS)
    ============================================================ */
 (function(){
 const O = window.ORONTES;
-const { STATE, PALETTE, persistPeople, uid, initials, toast, askConfirm, logActivity } = O;
+const { STATE, PALETTE, persistPeople, uid, initials, toast, askConfirm } = O;
 
 function renderPersonColorSwatches(selected){
   const wrap = document.getElementById('personColorSwatches');
@@ -359,7 +281,6 @@ function getSelectedPersonColor(){
 }
 
 function openPersonModal(personId){
-  STATE.editingPersonId = personId || null;
   const p = personId ? O.getPerson(personId) : null;
   document.getElementById('personModalTitle').textContent = p ? 'Editar encargado' : 'Nuevo encargado';
   document.getElementById('p-id').value = p ? p.id : '';
@@ -384,19 +305,16 @@ document.getElementById('personModalSave').addEventListener('click', ()=>{
     color: getSelectedPersonColor()
   };
   if(id){
-    const p = O.getPerson(id);
-    Object.assign(p, data);
-    logActivity(`<b>${nombre}</b> fue actualizado en Encargados`, 'fa-user-pen');
+    Object.assign(O.getPerson(id), data);
     toast('Encargado actualizado', 'success', 'fa-circle-check');
   } else {
     STATE.people.push({id: uid('p'), ...data});
-    logActivity(`<b>${nombre}</b> fue agregado como nuevo encargado`, 'fa-user-plus');
     toast('Encargado creado', 'success', 'fa-circle-check');
   }
   persistPeople();
   closePersonModal();
   renderPeople();
-  window.ORONTES.refreshAllSelects && window.ORONTES.refreshAllSelects();
+  O.refreshAllSelects && O.refreshAllSelects();
 });
 
 function deletePerson(id){
@@ -405,11 +323,10 @@ function deletePerson(id){
     STATE.people = STATE.people.filter(x=>x.id!==id);
     STATE.tasks.forEach(t=>{ if(t.responsable===id) t.responsable=''; });
     persistPeople(); O.persistTasks();
-    logActivity(`<b>${p.nombre}</b> fue eliminado de Encargados`, 'fa-user-xmark');
     toast('Encargado eliminado', 'success', 'fa-trash');
     renderPeople();
     O.refreshAllSelects && O.refreshAllSelects();
-    O.refreshCurrentView && O.refreshCurrentView();
+    O.refreshCurrentView();
   });
 }
 
@@ -439,13 +356,12 @@ O.renderPeople = renderPeople;
 })();
 
 /* ============================================================
-   6. GESTIÓN DE TAREAS (CRUD, comentarios, adjuntos)
+   5. GESTIÓN DE TAREAS (CRUD simplificado)
    ============================================================ */
 (function(){
 const O = window.ORONTES;
-const { STATE, PALETTE, persistTasks, uid, toast, askConfirm, logActivity, todayStr } = O;
+const { STATE, persistTasks, uid, toast, askConfirm, todayStr } = O;
 
-/* --- Poblar selects de responsable en toda la app --- */
 function refreshAllSelects(){
   const opts = '<option value="">Sin asignar</option>' + STATE.people.map(p=>`<option value="${p.id}">${O.escapeHtml(p.nombre)}</option>`).join('');
   const sel = document.getElementById('f-responsable');
@@ -456,103 +372,17 @@ function refreshAllSelects(){
 refreshAllSelects();
 O.refreshAllSelects = refreshAllSelects;
 
-/* --- Swatches de color en el formulario de tarea --- */
-function renderTaskColorSwatches(selected){
-  const wrap = document.getElementById('colorSwatches');
-  wrap.innerHTML = PALETTE.map(c=>`<span class="color-swatch" data-color="${c}" style="background:${c};"></span>`).join('');
-  wrap.querySelectorAll('.color-swatch').forEach(el=>{
-    if(el.dataset.color===selected) el.classList.add('selected');
-    el.addEventListener('click', ()=>{
-      wrap.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('selected'));
-      el.classList.add('selected');
-    });
-  });
-}
-function getSelectedTaskColor(){
-  const sel = document.querySelector('#colorSwatches .selected');
-  return sel ? sel.dataset.color : PALETTE[0];
-}
-
-/* --- Tags editables en el formulario --- */
-function renderTagInputs(){
-  const wrap = document.getElementById('tagInputWrap');
-  const input = document.getElementById('f-tagInput');
-  wrap.querySelectorAll('.tag-editable').forEach(el=>el.remove());
-  STATE.tempTags.forEach((tag,i)=>{
-    const chip = document.createElement('span');
-    chip.className = 'tag-editable';
-    chip.innerHTML = `${O.escapeHtml(tag)} <i class="fa-solid fa-xmark" data-i="${i}"></i>`;
-    wrap.insertBefore(chip, input);
-  });
-  wrap.querySelectorAll('.tag-editable i').forEach(icon=>{
-    icon.addEventListener('click', ()=>{
-      STATE.tempTags.splice(Number(icon.dataset.i),1);
-      renderTagInputs();
-    });
-  });
-}
-document.getElementById('f-tagInput').addEventListener('keydown', (e)=>{
-  if(e.key==='Enter'){
-    e.preventDefault();
-    const v = e.target.value.trim();
-    if(v && !STATE.tempTags.includes(v)){ STATE.tempTags.push(v); renderTagInputs(); }
-    e.target.value='';
-  }
-});
-
-/* --- Adjuntos (solo metadatos: nombre/tamaño, no se sube contenido real) --- */
-document.getElementById('fileDrop').addEventListener('click', ()=> document.getElementById('f-files').click());
-document.getElementById('fileDrop').addEventListener('dragover', e=>{ e.preventDefault(); });
-document.getElementById('fileDrop').addEventListener('drop', e=>{
-  e.preventDefault();
-  addFiles(e.dataTransfer.files);
-});
-document.getElementById('f-files').addEventListener('change', e=> addFiles(e.target.files));
-function addFiles(fileList){
-  Array.from(fileList).forEach(f=> STATE.tempFiles.push({name:f.name, size:f.size}));
-  renderFileList();
-}
-function renderFileList(){
-  const wrap = document.getElementById('fileList');
-  wrap.innerHTML = STATE.tempFiles.map((f,i)=>`<span class="file-chip"><i class="fa-solid fa-file"></i> ${O.escapeHtml(f.name)} <i class="fa-solid fa-xmark" style="cursor:pointer;" data-i="${i}"></i></span>`).join('');
-  wrap.querySelectorAll('i.fa-xmark').forEach(icon=>{
-    icon.addEventListener('click', ()=>{ STATE.tempFiles.splice(Number(icon.dataset.i),1); renderFileList(); });
-  });
-}
-
-/* --- Abrir / cerrar modal de tarea --- */
-function smartDefaultDate(presetDate){
-  if(presetDate) return presetDate;
-  // Si el calendario está activo, usar la fecha que se está viendo (mes/semana/día)
-  // en vez de forzar siempre "hoy", para que la tarea nueva quede visible de inmediato.
-  const calView = document.getElementById('view-calendar');
-  if(calView && calView.classList.contains('active') && STATE.calDate){
-    const d = STATE.calDate;
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  }
-  return todayStr();
-}
-function openTaskModal(taskId, presetDate){
-  STATE.editingTaskId = taskId || null;
+function openTaskModal(taskId){
   const t = taskId ? STATE.tasks.find(x=>x.id===taskId) : null;
-  const defaultDate = smartDefaultDate(presetDate);
   document.getElementById('taskModalTitle').textContent = t ? 'Editar tarea' : 'Nueva tarea';
   document.getElementById('f-id').value = t ? t.id : '';
   document.getElementById('f-nombre').value = t ? t.nombre : '';
-  document.getElementById('f-descripcion').value = t ? t.descripcion : '';
+  document.getElementById('f-descripcion').value = t ? (t.descripcion||'') : '';
   refreshAllSelects();
   document.getElementById('f-responsable').value = t ? (t.responsable||'') : '';
-  document.getElementById('f-categoria').value = t ? (t.categoria||'') : '';
-  document.getElementById('f-fechaInicio').value = t ? t.fechaInicio : defaultDate;
-  document.getElementById('f-fechaTermino').value = t ? (t.fechaTermino||'') : defaultDate;
-  document.getElementById('f-hora').value = t ? (t.hora||'') : '';
-  document.getElementById('f-prioridad').value = t ? t.prioridad : 'media';
+  document.getElementById('f-fechaInicio').value = t ? t.fechaInicio : todayStr();
+  document.getElementById('f-fechaTermino').value = t ? (t.fechaTermino||'') : todayStr();
   document.getElementById('f-estado').value = t ? t.estado : 'pendiente';
-  renderTaskColorSwatches(t ? t.color : PALETTE[0]);
-  STATE.tempTags = t ? [...t.etiquetas] : [];
-  STATE.tempFiles = t ? [...(t.adjuntos||[])] : [];
-  renderTagInputs();
-  renderFileList();
   document.getElementById('taskModalBackdrop').classList.add('show');
 }
 function closeTaskModal(){ document.getElementById('taskModalBackdrop').classList.remove('show'); }
@@ -572,15 +402,9 @@ document.getElementById('taskModalSave').addEventListener('click', ()=>{
     nombre,
     descripcion: document.getElementById('f-descripcion').value.trim(),
     responsable: document.getElementById('f-responsable').value,
-    categoria: document.getElementById('f-categoria').value.trim(),
     fechaInicio,
     fechaTermino: document.getElementById('f-fechaTermino').value || fechaInicio,
-    hora: document.getElementById('f-hora').value,
-    prioridad: document.getElementById('f-prioridad').value,
-    estado: document.getElementById('f-estado').value,
-    color: getSelectedTaskColor(),
-    etiquetas: [...STATE.tempTags],
-    adjuntos: [...STATE.tempFiles]
+    estado: document.getElementById('f-estado').value
   };
 
   const id = document.getElementById('f-id').value;
@@ -589,27 +413,20 @@ document.getElementById('taskModalSave').addEventListener('click', ()=>{
     const t = STATE.tasks.find(x=>x.id===id);
     Object.assign(t, data);
     savedTask = t;
-    logActivity(`<b>${O.escapeHtml(nombre)}</b> fue actualizada`, 'fa-pen');
     toast('Tarea actualizada correctamente', 'success', 'fa-circle-check');
   } else {
-    const t = {id: uid('t'), comentarios:[], ...data};
+    const t = {id: uid('t'), ...data};
     STATE.tasks.push(t);
     savedTask = t;
-    logActivity(`<b>${O.escapeHtml(nombre)}</b> fue creada`, 'fa-plus');
     toast('Tarea creada correctamente', 'success', 'fa-circle-check');
   }
   persistTasks();
   closeTaskModal();
-  // Aseguramos que el calendario "salte" a la fecha de la tarea guardada,
-  // para que quede visible de inmediato sin importar qué mes se estaba viendo.
-  STATE.calDate = new Date(fechaInicio + 'T00:00:00');
   O.refreshCurrentView();
-  // Si hay un filtro activo que oculte la tarea recién guardada, avisamos.
   const stillVisible = O.applyFilters([savedTask]).length > 0;
   if(!stillVisible){
     toast('La tarea se guardó, pero un filtro activo la está ocultando de esta vista', 'info', 'fa-filter');
   }
-  O.renderNotifications && O.renderNotifications();
 });
 
 function deleteTask(id){
@@ -617,71 +434,41 @@ function deleteTask(id){
   askConfirm('¿Eliminar tarea?', `Se eliminará "${t.nombre}" de forma permanente.`, ()=>{
     STATE.tasks = STATE.tasks.filter(x=>x.id!==id);
     persistTasks();
-    logActivity(`<b>${O.escapeHtml(t.nombre)}</b> fue eliminada`, 'fa-trash');
     toast('Tarea eliminada', 'success', 'fa-trash');
     O.closeTaskDrawer && O.closeTaskDrawer();
     O.refreshCurrentView();
-    O.renderNotifications && O.renderNotifications();
   });
-}
-function duplicateTask(id){
-  const t = STATE.tasks.find(x=>x.id===id);
-  const copy = {...t, id: uid('t'), nombre: t.nombre + ' (copia)', comentarios:[]};
-  STATE.tasks.push(copy);
-  persistTasks();
-  logActivity(`<b>${O.escapeHtml(t.nombre)}</b> fue duplicada`, 'fa-copy');
-  toast('Tarea duplicada', 'success', 'fa-copy');
-  O.refreshCurrentView();
 }
 function changeTaskStatus(id, estado){
   const t = STATE.tasks.find(x=>x.id===id);
-  const prevLabel = O.getEstadoMeta(t.estado).label;
   t.estado = estado;
   persistTasks();
-  logActivity(`<b>${O.escapeHtml(t.nombre)}</b> cambió de "${prevLabel}" a "${O.getEstadoMeta(estado).label}"`, 'fa-shuffle');
   toast('Estado actualizado', 'success', 'fa-circle-check');
   O.refreshCurrentView();
-  O.renderNotifications && O.renderNotifications();
 }
 function changeTaskResponsable(id, respId){
   const t = STATE.tasks.find(x=>x.id===id);
   t.responsable = respId;
   persistTasks();
-  logActivity(`<b>${O.escapeHtml(t.nombre)}</b> cambió de responsable a ${O.getPersonName(respId)}`, 'fa-user-check');
-  toast('Responsable actualizado', 'success', 'fa-circle-check');
+  toast('Encargado actualizado', 'success', 'fa-circle-check');
   O.refreshCurrentView();
 }
-function moveTaskDate(id, newDate){
+function moveTaskDate(id, field, newDate){
   const t = STATE.tasks.find(x=>x.id===id);
-  const oldDur = O.daysBetween(O.parseDate(t.fechaTermino||t.fechaInicio), O.parseDate(t.fechaInicio));
-  t.fechaInicio = newDate;
-  const d = O.parseDate(newDate); d.setDate(d.getDate()+oldDur);
-  t.fechaTermino = O.toISODate(d);
+  t[field] = newDate;
   persistTasks();
-  logActivity(`<b>${O.escapeHtml(t.nombre)}</b> se movió al ${O.fmtDateHuman(newDate)}`, 'fa-calendar-day');
   toast('Fecha actualizada', 'success', 'fa-circle-check');
   O.refreshCurrentView();
-  O.renderNotifications && O.renderNotifications();
-}
-function addComment(taskId, text){
-  const t = STATE.tasks.find(x=>x.id===taskId);
-  const now = new Date();
-  t.comentarios.push({id:uid('c'), autor:'Yo', texto:text, fecha:O.toISODate(now), hora:`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`});
-  persistTasks();
-  logActivity(`Nuevo comentario en <b>${O.escapeHtml(t.nombre)}</b>`, 'fa-comment');
-  O.renderNotifications && O.renderNotifications();
 }
 
 O.deleteTask = deleteTask;
-O.duplicateTask = duplicateTask;
 O.changeTaskStatus = changeTaskStatus;
 O.changeTaskResponsable = changeTaskResponsable;
 O.moveTaskDate = moveTaskDate;
-O.addComment = addComment;
 })();
 
 /* ============================================================
-   TASK DETAIL DRAWER (panel lateral de tarea)
+   6. TASK DETAIL DRAWER (panel lateral de tarea)
    ============================================================ */
 (function(){
 const O = window.ORONTES;
@@ -699,11 +486,11 @@ function openTaskDrawer(taskId){
       <span class="dot" style="background:${urgency.fg};"></span> ${urgency.label}
     </div>
     <div class="task-detail-title">${O.escapeHtml(t.nombre)}</div>
-    <div class="task-detail-desc">${O.escapeHtml(t.descripcion || 'Sin descripción.')}</div>
+    <div class="task-detail-desc">${O.escapeHtml(t.descripcion || 'Sin notas.')}</div>
 
     <div class="detail-meta-grid">
       <div class="detail-meta-item">
-        <label>Responsable</label>
+        <label>Encargado</label>
         <select id="dd-responsable">${respOpts}</select>
       </div>
       <div class="detail-meta-item">
@@ -711,62 +498,28 @@ function openTaskDrawer(taskId){
         <select id="dd-estado">${estadoOpts}</select>
       </div>
       <div class="detail-meta-item">
-        <label>Fecha</label>
-        <input type="date" id="dd-fecha" value="${t.fechaInicio}">
+        <label>Fecha inicio</label>
+        <input type="date" id="dd-fecha-inicio" value="${t.fechaInicio}">
       </div>
       <div class="detail-meta-item">
-        <label>Prioridad</label>
-        <span class="chip" style="background:${O.getPriorityMeta(t.prioridad).color}22;color:${O.getPriorityMeta(t.prioridad).color};"><span class="dot" style="background:${O.getPriorityMeta(t.prioridad).color};"></span> ${O.getPriorityMeta(t.prioridad).label}</span>
+        <label>Fecha término</label>
+        <input type="date" id="dd-fecha-termino" value="${t.fechaTermino||t.fechaInicio}">
       </div>
     </div>
-
-    ${t.etiquetas && t.etiquetas.length ? `<div class="tag-list">${t.etiquetas.map(tag=>`<span class="tag">#${O.escapeHtml(tag)}</span>`).join('')}</div>` : ''}
-
-    ${t.adjuntos && t.adjuntos.length ? `<div class="detail-section-title">Adjuntos</div><div class="file-list">${t.adjuntos.map(f=>`<span class="file-chip"><i class="fa-solid fa-paperclip"></i> ${O.escapeHtml(f.name)}</span>`).join('')}</div>` : ''}
 
     <div class="detail-section-title">Acciones</div>
     <div class="detail-actions-row">
       <button class="btn btn-secondary btn-sm" id="dd-edit"><i class="fa-solid fa-pen"></i> Editar</button>
-      <button class="btn btn-secondary btn-sm" id="dd-duplicate"><i class="fa-solid fa-copy"></i> Duplicar</button>
       <button class="btn btn-danger btn-sm" id="dd-delete"><i class="fa-solid fa-trash"></i> Eliminar</button>
-    </div>
-
-    <div class="detail-section-title">Comentarios <span style="color:var(--text-3);font-weight:500;">${t.comentarios.length}</span></div>
-    <div id="dd-comments">
-      ${t.comentarios.length ? t.comentarios.map(c=>`
-        <div class="comment-item">
-          <span class="avatar" style="background:var(--brand-800);">${O.initials(c.autor)}</span>
-          <div class="comment-body">
-            <div class="comment-head"><span class="comment-author">${O.escapeHtml(c.autor)}</span><span class="comment-time">${c.fecha} · ${c.hora}</span></div>
-            <div class="comment-text">${O.escapeHtml(c.texto)}</div>
-          </div>
-        </div>`).join('') : '<p style="font-size:12px;color:var(--text-3);">Aún no hay comentarios.</p>'}
-    </div>
-    <div class="comment-input-row">
-      <input type="text" id="dd-comment-input" placeholder="Escribe un comentario...">
-      <button id="dd-comment-send"><i class="fa-solid fa-paper-plane"></i></button>
-    </div>
-
-    <div class="detail-section-title">Actividad reciente</div>
-    <div id="dd-activity">
-      ${STATE.activity.filter(a=>a.text.includes(O.escapeHtml(t.nombre))).slice(0,6).map(a=>`
-        <div class="activity-item"><i class="fa-solid ${a.icon}"></i><div><span>${a.text}</span><span class="act-time">${O.timeAgo(a.ts)}</span></div></div>`).join('') || '<p style="font-size:12px;color:var(--text-3);">Sin actividad registrada.</p>'}
     </div>
   `;
 
   document.getElementById('dd-responsable').addEventListener('change', e=> O.changeTaskResponsable(t.id, e.target.value));
   document.getElementById('dd-estado').addEventListener('change', e=> O.changeTaskStatus(t.id, e.target.value));
-  document.getElementById('dd-fecha').addEventListener('change', e=> O.moveTaskDate(t.id, e.target.value));
+  document.getElementById('dd-fecha-inicio').addEventListener('change', e=> O.moveTaskDate(t.id, 'fechaInicio', e.target.value));
+  document.getElementById('dd-fecha-termino').addEventListener('change', e=> O.moveTaskDate(t.id, 'fechaTermino', e.target.value));
   document.getElementById('dd-edit').addEventListener('click', ()=>{ closeTaskDrawer(); O.openTaskModal(t.id); });
-  document.getElementById('dd-duplicate').addEventListener('click', ()=> O.duplicateTask(t.id));
   document.getElementById('dd-delete').addEventListener('click', ()=> O.deleteTask(t.id));
-  document.getElementById('dd-comment-send').addEventListener('click', ()=>{
-    const input = document.getElementById('dd-comment-input');
-    if(input.value.trim()){ O.addComment(t.id, input.value.trim()); input.value=''; openTaskDrawer(t.id); }
-  });
-  document.getElementById('dd-comment-input').addEventListener('keydown', e=>{
-    if(e.key==='Enter'){ document.getElementById('dd-comment-send').click(); }
-  });
 
   document.getElementById('taskDrawer').classList.add('show');
   document.getElementById('overlay').classList.add('show');
@@ -781,24 +534,13 @@ O.closeTaskDrawer = closeTaskDrawer;
 })();
 
 /* ============================================================
-   DAY DETAIL DRAWER (panel lateral del día)
+   7. PANEL GENÉRICO DE LISTA DE TAREAS (notificaciones / gráficos)
    ============================================================ */
 (function(){
 const O = window.ORONTES;
 const { STATE } = O;
-let currentDay = null;
 
-function tasksForDate(dateStr){
-  return STATE.tasks.filter(t=>{
-    const start = t.fechaInicio, end = t.fechaTermino || t.fechaInicio;
-    return dateStr >= start && dateStr <= end;
-  });
-}
-O.tasksForDate = tasksForDate;
-
-function openTaskListDrawer(title, tasks, opts){
-  opts = opts || {};
-  currentDay = opts.presetDate || null;
+function openTaskListDrawer(title, tasks){
   document.getElementById('dayDrawerTitle').textContent = title;
   const body = document.getElementById('dayDrawerBody');
   if(!tasks.length){
@@ -810,88 +552,57 @@ function openTaskListDrawer(title, tasks, opts){
         <h4>${O.escapeHtml(t.nombre)}</h4>
         <div class="ddi-meta">
           <span class="chip" style="background:${urgency.bg};color:${urgency.fg};padding:2px 8px;"><span class="dot" style="background:${urgency.fg};"></span>${urgency.label}</span>
-          ${t.hora ? `<span><i class="fa-regular fa-clock"></i> ${t.hora}</span>` : ''}
           <span><i class="fa-regular fa-user"></i> ${O.escapeHtml(O.getPersonName(t.responsable))}</span>
-          <span><i class="fa-regular fa-calendar"></i> ${O.fmtDateHuman(t.fechaInicio)}</span>
+          <span><i class="fa-regular fa-calendar"></i> ${O.fmtDateHuman(t.fechaTermino||t.fechaInicio)}</span>
         </div>
       </div>`;
     }).join('');
-    body.querySelectorAll('.day-drawer-item').forEach(el=>{
-      el.addEventListener('click', ()=> O.openTaskDrawer(el.dataset.id));
-    });
+    body.querySelectorAll('.day-drawer-item').forEach(el=> el.addEventListener('click', ()=> O.openTaskDrawer(el.dataset.id)));
   }
-  document.getElementById('dayDrawerAddBtn').style.display = opts.showAddButton===false ? 'none' : 'flex';
   document.getElementById('dayDrawer').classList.add('show');
   document.getElementById('overlay').classList.add('show');
-}
-function openDayDrawer(dateStr){
-  openTaskListDrawer(O.fmtDateHuman(dateStr), tasksForDate(dateStr), {presetDate: dateStr, showAddButton:true});
 }
 function closeDayDrawer(){
   document.getElementById('dayDrawer').classList.remove('show');
   if(!document.getElementById('taskDrawer').classList.contains('show')) document.getElementById('overlay').classList.remove('show');
 }
 document.getElementById('dayDrawerClose').addEventListener('click', closeDayDrawer);
-document.getElementById('dayDrawerAddBtn').addEventListener('click', ()=>{
-  closeDayDrawer();
-  O.openTaskModal(null, currentDay);
-});
 document.getElementById('overlay').addEventListener('click', ()=>{ closeDayDrawer(); O.closeTaskDrawer(); });
-O.openDayDrawer = openDayDrawer;
-O.closeDayDrawer = closeDayDrawer;
 O.openTaskListDrawer = openTaskListDrawer;
+O.closeDayDrawer = closeDayDrawer;
 })();
 
 /* ============================================================
-   NOTIFICACIONES
+   8. NOTIFICACIONES (solo tareas vencidas)
    ============================================================ */
 (function(){
 const O = window.ORONTES;
-const { STATE, saveJSON, STORAGE_KEYS } = O;
+const { STATE } = O;
 
-function computeNotifications(){
-  const notifs = [];
-  STATE.tasks.forEach(t=>{
-    if(t.estado==='completada' || t.estado==='cancelada') return;
-    const u = O.getUrgencyState(t);
-    if(u.key==='overdue') notifs.push({id:t.id+'_overdue', taskId:t.id, icon:'fa-triangle-exclamation', fg:u.fg, bg:u.bg, text:`<b>${O.escapeHtml(t.nombre)}</b> está atrasada`, ts: O.parseDate(t.fechaTermino||t.fechaInicio).getTime()});
-    if(u.key==='today') notifs.push({id:t.id+'_today', taskId:t.id, icon:'fa-clock', fg:u.fg, bg:u.bg, text:`<b>${O.escapeHtml(t.nombre)}</b> vence hoy`, ts: Date.now()});
-    if(u.key==='tomorrow') notifs.push({id:t.id+'_tomorrow', taskId:t.id, icon:'fa-hourglass-half', fg:u.fg, bg:u.bg, text:`<b>${O.escapeHtml(t.nombre)}</b> vence mañana`, ts: Date.now()});
-    // Sin actualización hace muchos días
-    const lastTouch = t.comentarios.length ? Math.max(...t.comentarios.map(c=>O.parseDate(c.fecha).getTime())) : O.parseDate(t.fechaInicio).getTime();
-    const daysSince = Math.floor((Date.now()-lastTouch)/86400000);
-    if(daysSince >= 7) notifs.push({id:t.id+'_stale', taskId:t.id, icon:'fa-clock-rotate-left', fg:'#8B7FA6', bg:'var(--state-waiting-bg)', text:`<b>${O.escapeHtml(t.nombre)}</b> lleva ${daysSince} días sin actualizarse`, ts: lastTouch});
-  });
-  STATE.tasks.filter(t=>t.estado==='completada').slice(-5).forEach(t=>{
-    notifs.push({id:t.id+'_done', taskId:t.id, icon:'fa-circle-check', fg:'#6F8F72', bg:'var(--state-done-bg)', text:`<b>${O.escapeHtml(t.nombre)}</b> fue completada`, ts: Date.now()-1});
-  });
-  return notifs.sort((a,b)=>b.ts-a.ts);
+function getOverdueTasks(){
+  return STATE.tasks.filter(t=> t.estado==='pendiente' && O.getUrgencyState(t).key==='overdue');
 }
 
 function renderNotifications(){
-  const notifs = computeNotifications();
-  const unread = notifs.filter(n=>!STATE.notifRead.includes(n.id));
+  const overdue = getOverdueTasks();
   const badge = document.getElementById('notifBadge');
-  if(unread.length){ badge.style.display='flex'; badge.textContent = unread.length>9?'9+':unread.length; }
+  if(overdue.length){ badge.style.display='flex'; badge.textContent = overdue.length>9?'9+':overdue.length; }
   else { badge.style.display='none'; }
 
   const list = document.getElementById('notifList');
-  if(!notifs.length){
-    list.innerHTML = `<div class="notif-empty"><i class="fa-regular fa-bell-slash" style="font-size:20px;display:block;margin-bottom:8px;"></i>Sin notificaciones por ahora.</div>`;
+  if(!overdue.length){
+    list.innerHTML = `<div class="notif-empty"><i class="fa-regular fa-circle-check" style="font-size:20px;display:block;margin-bottom:8px;"></i>No tienes tareas vencidas.</div>`;
     return;
   }
-  list.innerHTML = notifs.map(n=>`
-    <div class="notif-item" data-task="${n.taskId}" data-id="${n.id}">
-      <span class="ni-icon" style="background:${n.bg};color:${n.fg};"><i class="fa-solid ${n.icon}"></i></span>
-      <div class="ni-text"><div>${n.text}</div><div class="ni-time">${STATE.notifRead.includes(n.id)?'Leída':'Nueva'}</div></div>
+  list.innerHTML = overdue.map(t=>`
+    <div class="notif-item" data-task="${t.id}">
+      <span class="ni-icon" style="background:var(--state-overdue-bg);color:#B5654F;"><i class="fa-solid fa-triangle-exclamation"></i></span>
+      <div class="ni-text"><div><b>${O.escapeHtml(t.nombre)}</b> está vencida</div><div class="ni-time">Venció el ${O.fmtDateHuman(t.fechaTermino||t.fechaInicio)}</div></div>
     </div>`).join('');
   list.querySelectorAll('.notif-item').forEach(el=>{
     el.addEventListener('click', ()=>{
-      const id = el.dataset.id;
-      if(!STATE.notifRead.includes(id)){ STATE.notifRead.push(id); saveJSON(STORAGE_KEYS.notifRead, STATE.notifRead); }
       document.getElementById('notifDropdown').classList.remove('show');
       O.openTaskDrawer(el.dataset.task);
-      renderNotifications();
     });
   });
 }
@@ -901,36 +612,19 @@ document.getElementById('notifBtn').addEventListener('click', (e)=>{
   e.stopPropagation();
   document.getElementById('notifDropdown').classList.toggle('show');
 });
-document.getElementById('clearNotifRead').addEventListener('click', ()=>{
-  const ids = computeNotifications().map(n=>n.id);
-  STATE.notifRead = [...new Set([...STATE.notifRead, ...ids])];
-  saveJSON(STORAGE_KEYS.notifRead, STATE.notifRead);
-  renderNotifications();
-  O.toast('Notificaciones marcadas como leídas', 'success', 'fa-check-double');
-});
 document.addEventListener('click', (e)=>{
   const dd = document.getElementById('notifDropdown');
   if(dd.classList.contains('show') && !dd.contains(e.target) && e.target.id!=='notifBtn') dd.classList.remove('show');
 });
-
-/* Revisar notificaciones cada minuto para mantenerlas al día */
 setInterval(renderNotifications, 60000);
 })();
 
 /* ============================================================
-   7. RENDER: CALENDARIO (mes / semana / día) + Drag & Drop
+   9. FILTROS Y RENDER: LISTA DE TAREAS
    ============================================================ */
 (function(){
 const O = window.ORONTES;
 const { STATE } = O;
-const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-const DIAS_SEMANA = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-
-function fmtISO(d){
-  // OJO: evitamos d.toISOString() porque convierte a UTC y puede desalinear
-  // el día según la zona horaria del navegador. Usamos siempre componentes locales.
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
 
 function applyFilters(list){
   const f = STATE.filters;
@@ -938,12 +632,8 @@ function applyFilters(list){
   return list.filter(t=>{
     if(f.responsable && t.responsable!==f.responsable) return false;
     if(f.estado && t.estado!==f.estado) return false;
-    if(f.prioridad && t.prioridad!==f.prioridad) return false;
-    if(f.categoria && t.categoria!==f.categoria) return false;
-    if(f.etiqueta && !(t.etiquetas||[]).includes(f.etiqueta)) return false;
     if(s){
-      const hay = [t.nombre, O.getPersonName(t.responsable), t.estado, t.categoria, ...(t.etiquetas||[]), ...(t.comentarios||[]).map(c=>c.texto)]
-        .join(' ').toLowerCase();
+      const hay = [t.nombre, t.descripcion||'', O.getPersonName(t.responsable)].join(' ').toLowerCase();
       if(!hay.includes(s)) return false;
     }
     return true;
@@ -953,287 +643,32 @@ O.applyFilters = applyFilters;
 
 function buildFilterBar(containerId){
   const container = document.getElementById(containerId);
-  const categorias = [...new Set(STATE.tasks.map(t=>t.categoria).filter(Boolean))];
-  const etiquetas = [...new Set(STATE.tasks.flatMap(t=>t.etiquetas||[]))];
   container.innerHTML = `
-    <select id="${containerId}-responsable"><option value="">Todos los responsables</option>${STATE.people.map(p=>`<option value="${p.id}">${O.escapeHtml(p.nombre)}</option>`).join('')}</select>
+    <select id="${containerId}-responsable"><option value="">Todos los encargados</option>${STATE.people.map(p=>`<option value="${p.id}">${O.escapeHtml(p.nombre)}</option>`).join('')}</select>
     <select id="${containerId}-estado"><option value="">Todos los estados</option>${Object.entries(O.ESTADOS).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('')}</select>
-    <select id="${containerId}-prioridad"><option value="">Toda prioridad</option>${Object.entries(O.PRIORIDADES).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('')}</select>
-    <select id="${containerId}-categoria"><option value="">Toda categoría</option>${categorias.map(c=>`<option value="${c}">${O.escapeHtml(c)}</option>`).join('')}</select>
-    <select id="${containerId}-etiqueta"><option value="">Toda etiqueta</option>${etiquetas.map(e=>`<option value="${e}">#${O.escapeHtml(e)}</option>`).join('')}</select>
     <span class="filter-clear" id="${containerId}-clear">Limpiar filtros</span>
   `;
-  ['responsable','estado','prioridad','categoria','etiqueta'].forEach(key=>{
+  ['responsable','estado'].forEach(key=>{
     const el = document.getElementById(`${containerId}-${key}`);
     el.value = STATE.filters[key];
     el.addEventListener('change', ()=>{ STATE.filters[key]=el.value; O.refreshCurrentView(); });
   });
   document.getElementById(`${containerId}-clear`).addEventListener('click', ()=>{
-    STATE.filters = {responsable:'',estado:'',prioridad:'',categoria:'',etiqueta:''};
+    STATE.filters = {responsable:'', estado:''};
     O.refreshCurrentView();
   });
 }
+O.buildFilterBar = buildFilterBar;
 
-function dayPillHtml(t){
-  const urgency = O.getUrgencyState(t);
-  const pcolor = O.getPersonColor(t.responsable);
-  return `<div class="day-pill" draggable="true" data-id="${t.id}" style="background:${urgency.bg};color:${urgency.fg};border-left-color:${pcolor};" title="${O.escapeHtml(t.nombre)}">
-    <span class="dot" style="background:${pcolor};"></span>${O.escapeHtml(t.nombre)}
-  </div>`;
-}
+const URGENCY_RANK = {overdue:0, today:1, tomorrow:2, pending:3, done:4};
 
-function attachPillEvents(root){
-  root.querySelectorAll('.day-pill').forEach(pill=>{
-    pill.addEventListener('click', (e)=>{ e.stopPropagation(); O.openTaskDrawer(pill.dataset.id); });
-    pill.addEventListener('dragstart', (e)=>{
-      e.dataTransfer.setData('text/plain', pill.dataset.id);
-      pill.classList.add('dragging');
-    });
-    pill.addEventListener('dragend', ()=> pill.classList.remove('dragging'));
-  });
-}
-
-/* ---------- Vista MES ---------- */
-function renderMonth(){
-  const d = STATE.calDate;
-  const year = d.getFullYear(), month = d.getMonth();
-  document.getElementById('calPeriodLabel').textContent = `${MESES[month]} ${year}`;
-  document.getElementById('calSubtitle').textContent = 'Vista mensual de tareas';
-
-  const firstOfMonth = new Date(year, month, 1);
-  let startDay = firstOfMonth.getDay(); // 0=domingo
-  startDay = (startDay === 0) ? 6 : startDay - 1; // lunes-first
-  const gridStart = new Date(year, month, 1 - startDay);
-
-  const tasks = applyFilters(STATE.tasks);
-  const todayISO = O.todayStr();
-
-  let html = `<div class="calendar-grid"><div class="cal-weekdays">${DIAS_SEMANA.map(x=>`<div>${x}</div>`).join('')}</div><div class="cal-days">`;
-  for(let i=0;i<42;i++){
-    const cellDate = new Date(gridStart); cellDate.setDate(gridStart.getDate()+i);
-    const iso = fmtISO(cellDate);
-    const otherMonth = cellDate.getMonth() !== month;
-    const dayTasks = tasks.filter(t=> iso >= t.fechaInicio && iso <= (t.fechaTermino||t.fechaInicio));
-    const shown = dayTasks.slice(0,3);
-    const extra = dayTasks.length - shown.length;
-    html += `<div class="cal-day ${otherMonth?'other-month':''} ${iso===todayISO?'is-today':''}" data-date="${iso}">
-      <span class="day-num">${cellDate.getDate()}</span>
-      <div class="day-tasks">${shown.map(dayPillHtml).join('')}</div>
-      ${extra>0 ? `<span class="day-more">+${extra} más</span>` : ''}
-    </div>`;
-  }
-  html += `</div></div>`;
-  document.getElementById('calContainer').innerHTML = html;
-
-  document.querySelectorAll('.cal-day').forEach(cell=>{
-    cell.addEventListener('click', ()=> O.openDayDrawer(cell.dataset.date));
-    cell.addEventListener('dragover', e=>{ e.preventDefault(); cell.classList.add('drag-over'); });
-    cell.addEventListener('dragleave', ()=> cell.classList.remove('drag-over'));
-    cell.addEventListener('drop', e=>{
-      e.preventDefault(); cell.classList.remove('drag-over');
-      const taskId = e.dataTransfer.getData('text/plain');
-      if(taskId) O.moveTaskDate(taskId, cell.dataset.date);
-    });
-  });
-  attachPillEvents(document.getElementById('calContainer'));
-}
-
-/* ---------- Vista SEMANA ---------- */
-function getWeekStart(date){
-  const d = new Date(date);
-  let day = d.getDay(); day = (day===0)?6:day-1;
-  d.setDate(d.getDate()-day);
-  return d;
-}
-function renderWeek(){
-  const start = getWeekStart(STATE.calDate);
-  const days = Array.from({length:7}, (_,i)=>{ const dd=new Date(start); dd.setDate(start.getDate()+i); return dd; });
-  document.getElementById('calPeriodLabel').textContent = `${days[0].getDate()} - ${days[6].getDate()} ${MESES[days[6].getMonth()]} ${days[6].getFullYear()}`;
-  document.getElementById('calSubtitle').textContent = 'Vista semanal de tareas';
-  const tasks = applyFilters(STATE.tasks);
-  const todayISO = O.todayStr();
-
-  let html = `<div class="week-grid"><div style="border-bottom:1px solid var(--border);background:var(--surface-2);"></div>`;
-  days.forEach(dd=>{
-    const iso = fmtISO(dd);
-    html += `<div class="week-head-cell ${iso===todayISO?'is-today':''}" data-date="${iso}"><div class="wd">${DIAS_SEMANA[(dd.getDay()+6)%7]}</div><div class="wn">${dd.getDate()}</div></div>`;
-  });
-  html += `<div class="week-hour-label">Tareas</div>`;
-  days.forEach(dd=>{
-    const iso = fmtISO(dd);
-    const dayTasks = tasks.filter(t=> iso >= t.fechaInicio && iso <= (t.fechaTermino||t.fechaInicio));
-    html += `<div class="week-cell" data-date="${iso}">${dayTasks.map(dayPillHtml).join('')}</div>`;
-  });
-  html += `</div>`;
-  document.getElementById('calContainer').innerHTML = html;
-
-  document.querySelectorAll('.week-head-cell, .week-cell').forEach(cell=>{
-    cell.addEventListener('click', (e)=>{ if(e.target.closest('.day-pill')) return; O.openDayDrawer(cell.dataset.date); });
-    cell.addEventListener('dragover', e=> e.preventDefault());
-    cell.addEventListener('drop', e=>{
-      e.preventDefault();
-      const taskId = e.dataTransfer.getData('text/plain');
-      if(taskId) O.moveTaskDate(taskId, cell.dataset.date);
-    });
-  });
-  attachPillEvents(document.getElementById('calContainer'));
-}
-
-/* ---------- Vista DÍA ---------- */
-function renderDay(){
-  const iso = fmtISO(STATE.calDate);
-  document.getElementById('calPeriodLabel').textContent = O.fmtDateHuman(iso);
-  document.getElementById('calSubtitle').textContent = 'Vista diaria de tareas';
-  const tasks = applyFilters(O.tasksForDate(iso)).sort((a,b)=> (a.hora||'99:99').localeCompare(b.hora||'99:99'));
-
-  let html = `<div class="calendar-grid" style="padding:18px;">`;
-  if(!tasks.length){
-    html += `<div class="empty-state"><span class="brand-mark">${O.brandMarkSVG(52,'#C9C5B6')}</span><p>No hay tareas para este día. Crea una nueva con el botón "+ Nueva tarea".</p></div>`;
-  } else {
-    tasks.forEach(t=>{
-      const urgency = O.getUrgencyState(t);
-      const pcolor = O.getPersonColor(t.responsable);
-      html += `<div class="day-drawer-item" style="border-left-color:${pcolor};margin-bottom:10px;" data-id="${t.id}">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <h4 style="font-size:14px;">${t.hora? `<span style="color:var(--text-3);font-weight:500;">${t.hora}</span> · `:''}${O.escapeHtml(t.nombre)}</h4>
-          <span class="chip" style="background:${urgency.bg};color:${urgency.fg};"><span class="dot" style="background:${urgency.fg};"></span>${urgency.label}</span>
-        </div>
-        <div class="ddi-meta" style="margin-top:6px;"><span><i class="fa-regular fa-user"></i> ${O.escapeHtml(O.getPersonName(t.responsable))}</span></div>
-      </div>`;
-    });
-  }
-  html += `</div>`;
-  document.getElementById('calContainer').innerHTML = html;
-  document.querySelectorAll('#calContainer .day-drawer-item').forEach(el=> el.addEventListener('click', ()=> O.openTaskDrawer(el.dataset.id)));
-}
-
-function renderCalendar(){
-  buildFilterBar('calFilters');
-  if(STATE.calMode==='month') renderMonth();
-  else if(STATE.calMode==='week') renderWeek();
-  else renderDay();
-}
-O.renderCalendar = renderCalendar;
-
-/* --- Toolbar events --- */
-document.getElementById('calModeSwitch').addEventListener('click', (e)=>{
-  const btn = e.target.closest('button'); if(!btn) return;
-  STATE.calMode = btn.dataset.mode;
-  document.querySelectorAll('#calModeSwitch button').forEach(b=>b.classList.toggle('active', b===btn));
-  renderCalendar();
-});
-document.getElementById('calPrev').addEventListener('click', ()=>{
-  const d = STATE.calDate;
-  if(STATE.calMode==='month') d.setMonth(d.getMonth()-1);
-  else if(STATE.calMode==='week') d.setDate(d.getDate()-7);
-  else d.setDate(d.getDate()-1);
-  renderCalendar();
-});
-document.getElementById('calNext').addEventListener('click', ()=>{
-  const d = STATE.calDate;
-  if(STATE.calMode==='month') d.setMonth(d.getMonth()+1);
-  else if(STATE.calMode==='week') d.setDate(d.getDate()+7);
-  else d.setDate(d.getDate()+1);
-  renderCalendar();
-});
-document.getElementById('calTodayBtn').addEventListener('click', ()=>{ STATE.calDate = new Date(); renderCalendar(); });
-})();
-
-/* ============================================================
-   8. RENDER: KANBAN
-   ============================================================ */
-(function(){
-const O = window.ORONTES;
-const { STATE } = O;
-const COLUMNS = [
-  {key:'pendiente', label:'Pendiente', icon:'fa-circle-dot'},
-  {key:'progreso', label:'En proceso', icon:'fa-spinner'},
-  {key:'espera', label:'Esperando', icon:'fa-hourglass-half'},
-  {key:'completada', label:'Completada', icon:'fa-circle-check'}
-];
-
-function kanbanCardHtml(t){
-  const urgency = O.getUrgencyState(t);
-  const p = O.getPerson(t.responsable);
-  return `<div class="kanban-card" draggable="true" data-id="${t.id}" style="border-left-color:${t.color||'var(--brand-accent)'};">
-    <div class="kc-title-row">
-      <h4>${O.escapeHtml(t.nombre)}</h4>
-      <span class="chip" style="background:${O.getPriorityMeta(t.prioridad).color}22;color:${O.getPriorityMeta(t.prioridad).color};padding:2px 7px;">${O.getPriorityMeta(t.prioridad).label}</span>
-    </div>
-    <div class="kc-desc">${O.escapeHtml(t.descripcion||'Sin descripción')}</div>
-    <div class="kc-meta">
-      <span class="chip" style="background:${urgency.bg};color:${urgency.fg};padding:2px 8px;"><span class="dot" style="background:${urgency.fg};"></span>${urgency.label}</span>
-      ${p ? `<span class="avatar" style="background:${p.color};width:22px;height:22px;font-size:9px;" title="${O.escapeHtml(p.nombre)}">${O.initials(p.nombre)}</span>` : ''}
-    </div>
-  </div>`;
-}
-
-function renderKanban(){
-  O.buildFilterBar('kanbanFilters');
-  const tasks = O.applyFilters(STATE.tasks.filter(t=>t.estado!=='cancelada'));
-  const board = document.getElementById('kanbanBoard');
-  board.innerHTML = COLUMNS.map(col=>{
-    const colTasks = tasks.filter(t=>t.estado===col.key);
-    return `<div class="kanban-col" data-status="${col.key}">
-      <div class="kanban-col-head">
-        <span class="kc-title"><i class="fa-solid ${col.icon}"></i> ${col.label}</span>
-        <span class="kc-count">${colTasks.length}</span>
-      </div>
-      <div class="kanban-cards">${colTasks.map(kanbanCardHtml).join('') || `<div class="empty-state" style="padding:24px 10px;"><p>Sin tareas aquí</p></div>`}</div>
-    </div>`;
-  }).join('');
-
-  board.querySelectorAll('.kanban-card').forEach(card=>{
-    card.addEventListener('click', ()=> O.openTaskDrawer(card.dataset.id));
-    card.addEventListener('dragstart', e=>{ e.dataTransfer.setData('text/plain', card.dataset.id); card.classList.add('dragging'); });
-    card.addEventListener('dragend', ()=> card.classList.remove('dragging'));
-  });
-  board.querySelectorAll('.kanban-col').forEach(col=>{
-    col.addEventListener('dragover', e=>{ e.preventDefault(); col.classList.add('drag-over'); });
-    col.addEventListener('dragleave', ()=> col.classList.remove('drag-over'));
-    col.addEventListener('drop', e=>{
-      e.preventDefault(); col.classList.remove('drag-over');
-      const taskId = e.dataTransfer.getData('text/plain');
-      if(taskId) O.changeTaskStatus(taskId, col.dataset.status);
-    });
-  });
-}
-O.renderKanban = renderKanban;
-})();
-
-/* ============================================================
-   9. RENDER: LISTA
-   ============================================================ */
-(function(){
-const O = window.ORONTES;
-const { STATE } = O;
-
-/* Rango de urgencia usado para poder ordenar de más a menos urgente */
-const URGENCY_RANK = {overdue:0, today:1, tomorrow:2, progress:3, pending:4, done:5, cancelled:6};
-
-/* Formatea el rango de fechas de una tarea. Si inicio y término son el mismo
-   día, muestra solo esa fecha. Si abarca varios días, muestra "DD/MM al DD/MM". */
-function fmtDateRange(t){
-  const ini = t.fechaInicio, fin = t.fechaTermino || t.fechaInicio;
-  if(ini === fin) return O.fmtDateHuman(ini) + (t.hora ? ` · ${t.hora}` : '');
-  const d1 = O.parseDate(ini), d2 = O.parseDate(fin);
-  const f = (d)=> `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
-  const sameYear = d1.getFullYear() === d2.getFullYear();
-  return `${f(d1)} al ${f(d2)}${sameYear ? '' : '/'+d2.getFullYear()}`;
-}
-
-/* Última nota/comentario de la tarea, recortada para la tabla */
-function lastCommentPreview(t){
-  if(!t.comentarios || !t.comentarios.length) return '<span style="color:var(--text-3);">Sin comentarios</span>';
-  const c = t.comentarios[t.comentarios.length-1];
-  const texto = c.texto.length > 46 ? c.texto.slice(0,46)+'…' : c.texto;
-  const extra = t.comentarios.length > 1 ? ` <span style="color:var(--text-3);">(+${t.comentarios.length-1})</span>` : '';
-  return `<span title="${O.escapeHtml(c.texto)}">${O.escapeHtml(texto)}</span>${extra}`;
-}
+/* Rango de fechas: si inicio y término son el mismo día, muestra solo esa fecha con formato largo;
+   se usa en el detalle. Para la tabla mostramos ambas fechas en columnas separadas, tal como se pidió. */
+function fmtDate(str){ return str ? O.fmtDateHuman(str) : '—'; }
 
 function renderList(){
-  O.buildFilterBar('listFilters');
-  let tasks = O.applyFilters(STATE.tasks);
+  buildFilterBar('listFilters');
+  let tasks = applyFilters(STATE.tasks);
 
   if(STATE.listSort === 'urgencia'){
     tasks = tasks.sort((a,b)=>{
@@ -1249,24 +684,24 @@ function renderList(){
   document.getElementById('listSubtitle').textContent = `${tasks.length} tarea(s)`;
   const tbody = document.getElementById('listTableBody');
   if(!tasks.length){
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><span class="brand-mark">${O.brandMarkSVG(44,'#C9C5B6')}</span><p>No se encontraron tareas con los filtros aplicados.</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><span class="brand-mark">${O.brandMarkSVG(44,'#C9C5B6')}</span><p>No se encontraron tareas con los filtros aplicados.</p></div></td></tr>`;
     return;
   }
   tbody.innerHTML = tasks.map(t=>{
     const urgency = O.getUrgencyState(t);
     const p = O.getPerson(t.responsable);
     return `<tr data-id="${t.id}">
-      <td><b>${O.escapeHtml(t.nombre)}</b><div style="font-size:11px;color:var(--text-3);margin-top:2px;">${O.escapeHtml(t.categoria||'')}</div></td>
+      <td><b>${O.escapeHtml(t.nombre)}</b>${t.descripcion ? `<div style="font-size:11px;color:var(--text-3);margin-top:2px;">${O.escapeHtml(t.descripcion.slice(0,60))}${t.descripcion.length>60?'…':''}</div>` : ''}</td>
       <td>${p ? `<div class="person-cell"><span class="avatar" style="background:${p.color};width:24px;height:24px;font-size:9.5px;">${O.initials(p.nombre)}</span>${O.escapeHtml(p.nombre)}</div>` : '<span style="color:var(--text-3);">Sin asignar</span>'}</td>
-      <td style="max-width:220px;">${lastCommentPreview(t)}</td>
-      <td>${fmtDateRange(t)}</td>
+      <td>${fmtDate(t.fechaInicio)}</td>
+      <td>${fmtDate(t.fechaTermino)}</td>
       <td><span class="chip" style="background:${urgency.bg};color:${urgency.fg};"><span class="dot" style="background:${urgency.fg};"></span>${urgency.label}</span></td>
-      <td>${(t.etiquetas||[]).map(tag=>`<span class="tag" style="margin-right:4px;">#${O.escapeHtml(tag)}</span>`).join('')}</td>
     </tr>`;
   }).join('');
   tbody.querySelectorAll('tr[data-id]').forEach(tr=> tr.addEventListener('click', ()=> O.openTaskDrawer(tr.dataset.id)));
 }
 O.renderList = renderList;
+
 document.getElementById('listSortSwitch').addEventListener('click', (e)=>{
   const btn = e.target.closest('button'); if(!btn) return;
   STATE.listSort = btn.dataset.sort;
@@ -1291,19 +726,15 @@ function themeColors(){
 function renderStats(){
   const tasks = STATE.tasks;
   const total = tasks.length;
-  const pendientes = tasks.filter(t=>t.estado==='pendiente').length;
-  const progreso = tasks.filter(t=>t.estado==='progreso').length;
   const completadas = tasks.filter(t=>t.estado==='completada').length;
-  const atrasadas = tasks.filter(t=> O.getUrgencyState(t).key==='overdue').length;
-  const urgentes = tasks.filter(t=>t.prioridad==='urgente' && t.estado!=='completada').length;
+  const pendientes = tasks.filter(t=>t.estado==='pendiente').length;
+  const vencidas = tasks.filter(t=> O.getUrgencyState(t).key==='overdue').length;
 
   const cards = [
     {label:'Total de tareas', value: total, icon:'fa-list-check', fg:'#4A4F54', bg:'#E7E4DA'},
     {label:'Pendientes', value: pendientes, icon:'fa-circle-dot', fg:'#8B7FA6', bg:'var(--state-waiting-bg)'},
-    {label:'En proceso', value: progreso, icon:'fa-spinner', fg:'#5D7C8A', bg:'var(--state-progress-bg)'},
     {label:'Completadas', value: completadas, icon:'fa-circle-check', fg:'#6F8F72', bg:'var(--state-done-bg)'},
-    {label:'Atrasadas', value: atrasadas, icon:'fa-triangle-exclamation', fg:'#B5654F', bg:'var(--state-overdue-bg)'},
-    {label:'Urgentes', value: urgentes, icon:'fa-bolt', fg:'#B5504A', bg:'var(--state-overdue-bg)'}
+    {label:'Vencidas', value: vencidas, icon:'fa-triangle-exclamation', fg:'#B5654F', bg:'var(--state-overdue-bg)'}
   ];
   document.getElementById('statGrid').innerHTML = cards.map(c=>`
     <div class="stat-card">
@@ -1322,49 +753,38 @@ function renderCharts(){
   Chart.defaults.font.family = "'Inter', sans-serif";
   Chart.defaults.font.size = 11;
 
-  // --- Por estado ---
+  /* --- Por estado (derivado: Vencida / Pendiente / Completada) --- */
   destroyChart('estado');
-  const estadoLabels = Object.values(O.ESTADOS).map(e=>e.label);
-  const estadoData = Object.keys(O.ESTADOS).map(k=> tasks.filter(t=>t.estado===k).length);
-  const estadoColors = Object.values(O.ESTADOS).map(e=>e.fg);
-  const estadoKeys = Object.keys(O.ESTADOS);
+  const buckets = [
+    {key:'overdue', label:'Vencida', color:'#B5654F'},
+    {key:'pending', label:'Pendiente', color:'#8B7FA6'},
+    {key:'done', label:'Completada', color:'#6F8F72'}
+  ];
+  const estadoData = buckets.map(b=> tasks.filter(t=>{
+    const u = O.getUrgencyState(t);
+    if(b.key==='pending') return u.key!=='overdue' && u.key!=='done';
+    return u.key===b.key;
+  }).length);
   charts.estado = new Chart(document.getElementById('chartEstado'), {
     type:'doughnut',
-    data:{ labels:estadoLabels, datasets:[{data:estadoData, backgroundColor:estadoColors, borderWidth:0}] },
+    data:{ labels:buckets.map(b=>b.label), datasets:[{data:estadoData, backgroundColor:buckets.map(b=>b.color), borderWidth:0}] },
     options:{
       plugins:{legend:{position:'bottom', labels:{boxWidth:10,padding:12}}}, cutout:'62%',
       onClick:(evt, elements)=>{
         if(!elements.length) return;
-        const key = estadoKeys[elements[0].index];
-        const matching = tasks.filter(t=>t.estado===key);
-        O.openTaskListDrawer(`Estado: ${O.getEstadoMeta(key).label}`, matching, {showAddButton:false});
+        const b = buckets[elements[0].index];
+        const matching = tasks.filter(t=>{
+          const u = O.getUrgencyState(t);
+          if(b.key==='pending') return u.key!=='overdue' && u.key!=='done';
+          return u.key===b.key;
+        });
+        O.openTaskListDrawer(`Estado: ${b.label}`, matching);
       },
       onHover:(evt, elements)=>{ evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; }
     }
   });
 
-  // --- Por prioridad ---
-  destroyChart('prioridad');
-  const prLabels = Object.values(O.PRIORIDADES).map(p=>p.label);
-  const prData = Object.keys(O.PRIORIDADES).map(k=> tasks.filter(t=>t.prioridad===k).length);
-  const prColors = Object.values(O.PRIORIDADES).map(p=>p.color);
-  const prKeys = Object.keys(O.PRIORIDADES);
-  charts.prioridad = new Chart(document.getElementById('chartPrioridad'), {
-    type:'bar',
-    data:{ labels:prLabels, datasets:[{data:prData, backgroundColor:prColors, borderRadius:6, maxBarThickness:44}] },
-    options:{
-      plugins:{legend:{display:false}}, scales:{ x:{grid:{display:false}}, y:{grid:{color:tc.grid}, beginAtZero:true, ticks:{precision:0}} },
-      onClick:(evt, elements)=>{
-        if(!elements.length) return;
-        const key = prKeys[elements[0].index];
-        const matching = tasks.filter(t=>t.prioridad===key);
-        O.openTaskListDrawer(`Prioridad: ${O.getPriorityMeta(key).label}`, matching, {showAddButton:false});
-      },
-      onHover:(evt, elements)=>{ evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; }
-    }
-  });
-
-  // --- Por responsable ---
+  /* --- Por responsable --- */
   destroyChart('responsable');
   const respLabels = STATE.people.map(p=>p.nombre.split(' ')[0]);
   const respData = STATE.people.map(p=> tasks.filter(t=>t.responsable===p.id).length);
@@ -1377,14 +797,13 @@ function renderCharts(){
       onClick:(evt, elements)=>{
         if(!elements.length) return;
         const p = STATE.people[elements[0].index];
-        const matching = tasks.filter(t=>t.responsable===p.id);
-        O.openTaskListDrawer(`Responsable: ${p.nombre}`, matching, {showAddButton:false});
+        O.openTaskListDrawer(`Encargado: ${p.nombre}`, tasks.filter(t=>t.responsable===p.id));
       },
       onHover:(evt, elements)=>{ evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; }
     }
   });
 
-  // --- Avance semanal (últimos 7 días: completadas por día) ---
+  /* --- Avance semanal (últimos 7 días: completadas por día de término) --- */
   destroyChart('avanceSemanal');
   const days7 = Array.from({length:7},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); return d; });
   const wLabels = days7.map(d=> ['dom','lun','mar','mié','jue','vie','sáb'][d.getDay()]);
@@ -1398,11 +817,11 @@ function renderCharts(){
     options:{ plugins:{legend:{display:false}}, scales:{ x:{grid:{display:false}}, y:{grid:{color:tc.grid}, beginAtZero:true, ticks:{precision:0}} } }
   });
 
-  // --- Avance mensual (últimas 6 semanas) ---
+  /* --- Avance mensual (últimas 6 semanas) --- */
   destroyChart('avanceMensual');
   const weeks6 = Array.from({length:6},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(5-i)*7); return d; });
   const mLabels = weeks6.map(d=> `S${Math.ceil(d.getDate()/7)} ${['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'][d.getMonth()]}`);
-  const mData = weeks6.map((d,i)=>{
+  const mData = weeks6.map((d)=>{
     const start = new Date(d); start.setDate(start.getDate()-6);
     return tasks.filter(t=>{
       const dt = O.parseDate(t.fechaTermino||t.fechaInicio);
@@ -1415,7 +834,7 @@ function renderCharts(){
     options:{ plugins:{legend:{display:false}}, scales:{ x:{grid:{display:false}}, y:{grid:{color:tc.grid}, beginAtZero:true, ticks:{precision:0}} } }
   });
 
-  // --- Productividad por persona (% completadas de sus tareas) ---
+  /* --- Productividad por persona (% completadas de sus tareas) --- */
   destroyChart('productividad');
   const prodLabels = STATE.people.map(p=>p.nombre.split(' ')[0]);
   const prodData = STATE.people.map(p=>{
@@ -1443,10 +862,7 @@ const O = window.ORONTES;
 let debounceTimer;
 document.getElementById('globalSearch').addEventListener('input', (e)=>{
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(()=>{
-    O.STATE.search = e.target.value;
-    O.refreshCurrentView();
-  }, 220);
+  debounceTimer = setTimeout(()=>{ O.STATE.search = e.target.value; O.refreshCurrentView(); }, 220);
 });
 })();
 
@@ -1472,10 +888,9 @@ document.getElementById('exportJsonBtn').addEventListener('click', ()=>{
 });
 
 function tasksToCSV(){
-  const headers = ['Nombre','Descripcion','Responsable','FechaInicio','FechaTermino','Hora','Prioridad','Estado','Categoria','Etiquetas'];
+  const headers = ['Nombre','Notas','Encargado','FechaInicio','FechaTermino','Estado'];
   const rows = STATE.tasks.map(t=> [
-    t.nombre, t.descripcion, O.getPersonName(t.responsable), t.fechaInicio, t.fechaTermino||'', t.hora||'',
-    O.getPriorityMeta(t.prioridad).label, O.getEstadoMeta(t.estado).label, t.categoria||'', (t.etiquetas||[]).join('|')
+    t.nombre, t.descripcion||'', O.getPersonName(t.responsable), t.fechaInicio, t.fechaTermino||'', O.getEstadoMeta(t.estado).label
   ].map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(','));
   return [headers.join(','), ...rows].join('\n');
 }
@@ -1488,7 +903,7 @@ document.getElementById('exportPdfBtn').addEventListener('click', ()=>{
   const tasks = O.applyFilters(STATE.tasks);
   const win = window.open('', '_blank');
   win.document.write(`
-    <html><head><title>Orontes . Tareas</title>
+    <html><head><title>Orontes - Tareas</title>
     <style>
       body{font-family:Arial, sans-serif; padding:30px; color:#2E3134;}
       h1{font-family:Arial; letter-spacing:2px; color:#4A4F54; font-size:20px;}
@@ -1498,8 +913,8 @@ document.getElementById('exportPdfBtn').addEventListener('click', ()=>{
     </style></head><body>
     <h1>ORONTES - Listado de tareas</h1>
     <p style="color:#8B8F92;font-size:12px;">Generado el ${new Date().toLocaleString('es-CL')}</p>
-    <table><thead><tr><th>Tarea</th><th>Responsable</th><th>Fecha</th><th>Prioridad</th><th>Estado</th></tr></thead><tbody>
-    ${tasks.map(t=>`<tr><td>${O.escapeHtml(t.nombre)}</td><td>${O.escapeHtml(O.getPersonName(t.responsable))}</td><td>${t.fechaInicio}</td><td>${O.getPriorityMeta(t.prioridad).label}</td><td>${O.getEstadoMeta(t.estado).label}</td></tr>`).join('')}
+    <table><thead><tr><th>Tarea</th><th>Encargado</th><th>Fecha inicio</th><th>Fecha término</th><th>Estado</th></tr></thead><tbody>
+    ${tasks.map(t=>`<tr><td>${O.escapeHtml(t.nombre)}</td><td>${O.escapeHtml(O.getPersonName(t.responsable))}</td><td>${t.fechaInicio}</td><td>${t.fechaTermino||''}</td><td>${O.getEstadoMeta(t.estado).label}</td></tr>`).join('')}
     </tbody></table>
     </body></html>`);
   win.document.close();
@@ -1514,14 +929,8 @@ document.getElementById('importInput').addEventListener('change', (e)=>{
     try{
       if(file.name.endsWith('.json')){
         const data = JSON.parse(ev.target.result);
-        if(data.tasks){
-          data.tasks.forEach(t=> STATE.tasks.push({...t, id: O.uid('t')}));
-          O.persistTasks();
-        }
-        if(data.people){
-          data.people.forEach(p=> STATE.people.push({...p, id:O.uid('p')}));
-          O.persistPeople();
-        }
+        if(data.tasks){ data.tasks.forEach(t=> STATE.tasks.push({...t, id: O.uid('t')})); O.persistTasks(); }
+        if(data.people){ data.people.forEach(p=> STATE.people.push({...p, id:O.uid('p')})); O.persistPeople(); }
       } else {
         const lines = ev.target.result.split(/\r?\n/).filter(Boolean);
         const headers = lines[0].split(',').map(h=>h.replace(/"/g,'').trim().toLowerCase());
@@ -1529,15 +938,14 @@ document.getElementById('importInput').addEventListener('change', (e)=>{
           const cols = line.match(/(".*?"|[^,]+)(?=,|$)/g).map(c=>c.replace(/^"|"$/g,'').replace(/""/g,'"'));
           const get = (name)=>{ const i = headers.indexOf(name); return i>=0 ? cols[i] : ''; };
           STATE.tasks.push({
-            id:O.uid('t'), nombre:get('nombre')||'Tarea importada', descripcion:get('descripcion')||'',
+            id:O.uid('t'), nombre:get('nombre')||'Tarea importada', descripcion:get('notas')||'',
             responsable:'', fechaInicio:get('fechainicio')||O.todayStr(), fechaTermino:get('fechatermino')||get('fechainicio')||O.todayStr(),
-            hora:get('hora')||'', prioridad:'media', estado:'pendiente', categoria:get('categoria')||'',
-            etiquetas:(get('etiquetas')||'').split('|').filter(Boolean), color:O.PALETTE[0], comentarios:[], adjuntos:[]
+            estado:'pendiente'
           });
         });
         O.persistTasks();
       }
-      O.toast('Importacion completada', 'success', 'fa-file-import');
+      O.toast('Importación completada', 'success', 'fa-file-import');
       O.refreshCurrentView();
       O.renderNotifications();
     }catch(err){
@@ -1551,16 +959,10 @@ document.getElementById('importInput').addEventListener('change', (e)=>{
 })();
 
 /* ============================================================
-   13. NAVEGACION / INICIALIZACION
+   13. INICIALIZACIÓN
    ============================================================ */
 (function(){
 const O = window.ORONTES;
-
-function refreshCurrentView(){
-  const activeView = document.querySelector('.view.active').id.replace('view-','');
-  O.switchView(activeView);
-}
-O.refreshCurrentView = refreshCurrentView;
 
 ['taskModalBackdrop','personModalBackdrop','confirmBackdrop'].forEach(id=>{
   document.getElementById(id).addEventListener('click', (e)=>{
@@ -1575,20 +977,12 @@ document.addEventListener('keydown', (e)=>{
   }
 });
 
-document.getElementById('resetDataBtn').addEventListener('click', ()=>{
-  if(confirm('Esto borrará todas las tareas y encargados guardados en este navegador, y volverá a los datos de ejemplo. ¿Continuar?')){
-    resetOrontesData();
-  }
-});
-
-/* Menu movil */
 document.getElementById('mobileMenuBtn').addEventListener('click', ()=>{
   document.getElementById('sidebar').classList.toggle('mobile-open');
 });
 if(window.innerWidth <= 900){ document.getElementById('mobileMenuBtn').style.display='flex'; }
 
-O.renderCalendar();
+O.renderList();
 O.renderNotifications();
 O.toast('Bienvenido/a al panel de Orontes', 'info', 'fa-tooth');
-
 })();
