@@ -133,14 +133,14 @@ function escapeHtml(str){
 /* ============================================================
    3. MARCA / RELOJ / TEMA / SIDEBAR
    ============================================================ */
-function brandMarkSVG(size, color){
-  return `<svg width="${size}" height="${size}" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M50 8 A42 42 0 0 1 88 45" stroke="${color}" stroke-width="11" stroke-linecap="round"/>
-    <path d="M14 58 A42 42 0 0 1 33 15" stroke="${color}" stroke-width="11" stroke-linecap="round"/>
-    <path d="M62 90 A42 42 0 0 1 20 68" stroke="${color}" stroke-width="11" stroke-linecap="round"/>
-  </svg>`;
+function brandMarkSVG(size, variant){
+  // Usa el logo real de Orontes (logo-mark.png). variant 'light' = versión
+  // blanca para fondos oscuros (sidebar); 'muted' = versión gris tenue para
+  // estados vacíos sobre fondo claro.
+  const cls = variant === 'light' ? 'brand-mark-light' : 'brand-mark-muted';
+  return `<img src="logo-mark.png" width="${size}" height="${size}" class="${cls}" alt="Orontes" style="display:block;">`;
 }
-document.getElementById('brandMarkSidebar').innerHTML = brandMarkSVG(26, '#C9C5B6');
+document.getElementById('brandMarkSidebar').innerHTML = brandMarkSVG(28, 'light');
 
 function tickClock(){
   const now = new Date();
@@ -544,7 +544,7 @@ function openTaskListDrawer(title, tasks){
   document.getElementById('dayDrawerTitle').textContent = title;
   const body = document.getElementById('dayDrawerBody');
   if(!tasks.length){
-    body.innerHTML = `<div class="empty-state"><span class="brand-mark">${O.brandMarkSVG(48,'#B5B0A0')}</span><p>No hay tareas que coincidan.</p></div>`;
+    body.innerHTML = `<div class="empty-state"><span class="brand-mark">${O.brandMarkSVG(48,'muted')}</span><p>No hay tareas que coincidan.</p></div>`;
   } else {
     body.innerHTML = tasks.map(t=>{
       const urgency = O.getUrgencyState(t);
@@ -684,14 +684,21 @@ function renderList(){
   document.getElementById('listSubtitle').textContent = `${tasks.length} tarea(s)`;
   const tbody = document.getElementById('listTableBody');
   if(!tasks.length){
-    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><span class="brand-mark">${O.brandMarkSVG(44,'#C9C5B6')}</span><p>No se encontraron tareas con los filtros aplicados.</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><span class="brand-mark">${O.brandMarkSVG(44,'muted')}</span><p>No se encontraron tareas con los filtros aplicados.</p></div></td></tr>`;
     return;
   }
   tbody.innerHTML = tasks.map(t=>{
     const urgency = O.getUrgencyState(t);
     const p = O.getPerson(t.responsable);
+    const done = t.estado==='completada';
     return `<tr data-id="${t.id}">
-      <td><b>${O.escapeHtml(t.nombre)}</b>${t.descripcion ? `<div style="font-size:11px;color:var(--text-3);margin-top:2px;">${O.escapeHtml(t.descripcion.slice(0,60))}${t.descripcion.length>60?'…':''}</div>` : ''}</td>
+      <td>
+        <label class="task-check" title="${done ? 'Marcar como pendiente' : 'Marcar como completada'}">
+          <input type="checkbox" data-check-id="${t.id}" ${done ? 'checked' : ''}>
+          <span class="task-check-box"><i class="fa-solid fa-check"></i></span>
+        </label>
+        <b class="${done ? 'task-name-done' : ''}">${O.escapeHtml(t.nombre)}</b>${t.descripcion ? `<div style="font-size:11px;color:var(--text-3);margin-top:2px;">${O.escapeHtml(t.descripcion.slice(0,60))}${t.descripcion.length>60?'…':''}</div>` : ''}
+      </td>
       <td>${p ? `<div class="person-cell"><span class="avatar" style="background:${p.color};width:24px;height:24px;font-size:9.5px;">${O.initials(p.nombre)}</span>${O.escapeHtml(p.nombre)}</div>` : '<span style="color:var(--text-3);">Sin asignar</span>'}</td>
       <td>${fmtDate(t.fechaInicio)}</td>
       <td>${fmtDate(t.fechaTermino)}</td>
@@ -699,6 +706,12 @@ function renderList(){
     </tr>`;
   }).join('');
   tbody.querySelectorAll('tr[data-id]').forEach(tr=> tr.addEventListener('click', ()=> O.openTaskDrawer(tr.dataset.id)));
+  tbody.querySelectorAll('input[data-check-id]').forEach(cb=>{
+    cb.addEventListener('click', (e)=> e.stopPropagation());
+    cb.addEventListener('change', (e)=>{
+      O.changeTaskStatus(e.target.dataset.checkId, e.target.checked ? 'completada' : 'pendiente');
+    });
+  });
 }
 O.renderList = renderList;
 
@@ -801,51 +814,6 @@ function renderCharts(){
       },
       onHover:(evt, elements)=>{ evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; }
     }
-  });
-
-  /* --- Avance semanal (últimos 7 días: completadas por día de término) --- */
-  destroyChart('avanceSemanal');
-  const days7 = Array.from({length:7},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); return d; });
-  const wLabels = days7.map(d=> ['dom','lun','mar','mié','jue','vie','sáb'][d.getDay()]);
-  const wData = days7.map(d=>{
-    const iso = O.toISODate(d);
-    return tasks.filter(t=> t.estado==='completada' && (t.fechaTermino||t.fechaInicio)===iso).length;
-  });
-  charts.avanceSemanal = new Chart(document.getElementById('chartAvanceSemanal'), {
-    type:'line',
-    data:{ labels:wLabels, datasets:[{data:wData, borderColor:'#5D7C8A', backgroundColor:'rgba(93,124,138,0.15)', fill:true, tension:.35, pointRadius:3}] },
-    options:{ plugins:{legend:{display:false}}, scales:{ x:{grid:{display:false}}, y:{grid:{color:tc.grid}, beginAtZero:true, ticks:{precision:0}} } }
-  });
-
-  /* --- Avance mensual (últimas 6 semanas) --- */
-  destroyChart('avanceMensual');
-  const weeks6 = Array.from({length:6},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(5-i)*7); return d; });
-  const mLabels = weeks6.map(d=> `S${Math.ceil(d.getDate()/7)} ${['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'][d.getMonth()]}`);
-  const mData = weeks6.map((d)=>{
-    const start = new Date(d); start.setDate(start.getDate()-6);
-    return tasks.filter(t=>{
-      const dt = O.parseDate(t.fechaTermino||t.fechaInicio);
-      return t.estado==='completada' && dt>=start && dt<=d;
-    }).length;
-  });
-  charts.avanceMensual = new Chart(document.getElementById('chartAvanceMensual'), {
-    type:'bar',
-    data:{ labels:mLabels, datasets:[{data:mData, backgroundColor:'#C9C5B6', borderRadius:6, maxBarThickness:36}] },
-    options:{ plugins:{legend:{display:false}}, scales:{ x:{grid:{display:false}}, y:{grid:{color:tc.grid}, beginAtZero:true, ticks:{precision:0}} } }
-  });
-
-  /* --- Productividad por persona (% completadas de sus tareas) --- */
-  destroyChart('productividad');
-  const prodLabels = STATE.people.map(p=>p.nombre.split(' ')[0]);
-  const prodData = STATE.people.map(p=>{
-    const own = tasks.filter(t=>t.responsable===p.id);
-    if(!own.length) return 0;
-    return Math.round(100*own.filter(t=>t.estado==='completada').length/own.length);
-  });
-  charts.productividad = new Chart(document.getElementById('chartProductividad'), {
-    type:'radar',
-    data:{ labels:prodLabels, datasets:[{label:'% Completado', data:prodData, backgroundColor:'rgba(74,79,84,0.18)', borderColor:'#4A4F54', pointBackgroundColor:'#4A4F54'}] },
-    options:{ plugins:{legend:{display:false}}, scales:{ r:{ grid:{color:tc.grid}, angleLines:{color:tc.grid}, suggestedMin:0, suggestedMax:100, ticks:{showLabelBackdrop:false, stepSize:25} } } }
   });
 }
 

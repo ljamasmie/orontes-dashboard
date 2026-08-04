@@ -111,6 +111,11 @@ input,select,textarea{font-family:var(--font-body);}
 a{color:inherit;}
 
 .brand-mark{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
+.brand-mark img{display:block;}
+/* Versión blanca del isotipo para fondos oscuros (sidebar) */
+.brand-mark-light{ filter: brightness(0) invert(1); }
+/* Versión tenue (gris natural del logo) para estados vacíos sobre fondo claro */
+.brand-mark-muted{ opacity:.4; }
 .brand-mark svg{display:block;}
 
 /* ============ APP SHELL ============ */
@@ -276,6 +281,18 @@ table.list-table tbody tr:last-child td{border-bottom:none;}
 .avatar{width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:10.5px;font-weight:700;flex-shrink:0;}
 .person-cell{display:flex;align-items:center;gap:8px;}
 
+/* ---------- CHECKBOX RÁPIDO PARA MARCAR COMPLETADA ---------- */
+.task-check{position:relative;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-right:10px;vertical-align:middle;cursor:pointer;}
+.task-check input{position:absolute;opacity:0;width:18px;height:18px;margin:0;cursor:pointer;}
+.task-check-box{
+  width:18px;height:18px;border-radius:5px;border:1.5px solid var(--border-strong);
+  background:var(--surface);display:flex;align-items:center;justify-content:center;
+  color:transparent;font-size:10px;transition:var(--transition);flex-shrink:0;
+}
+.task-check input:checked + .task-check-box{background:var(--state-done);border-color:var(--state-done);color:#fff;}
+.task-check input:hover + .task-check-box{border-color:var(--brand-accent-dark);}
+.task-name-done{color:var(--text-3);text-decoration:line-through;}
+
 /* ---------- DASHBOARD STATS ---------- */
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:20px;}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;box-shadow:var(--shadow-sm);position:relative;overflow:hidden;}
@@ -429,7 +446,7 @@ table.list-table tbody tr:last-child td{border-bottom:none;}
 
 /* ---------- Empty state ---------- */
 .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;color:var(--text-3);text-align:center;}
-.empty-state .brand-mark{opacity:.35;margin-bottom:14px;}
+.empty-state .brand-mark{margin-bottom:14px;}
 .empty-state p{font-size:13px;max-width:280px;}
 
 /* ---------- Filters bar ---------- */
