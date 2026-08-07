@@ -1,6 +1,11 @@
 /* ============================================================
-   ORONTES · SEGUIMIENTO DE TAREAS (versión simplificada)
-   JavaScript Vanilla — sin backend, persistencia en LocalStorage
+   ORONTES · SEGUIMIENTO DE TAREAS (versión compartida en la nube)
+   JavaScript Vanilla + Firebase Realtime Database.
+   Todos los que abren el link comparten la misma información en
+   tiempo real: tareas y encargados viven en Firebase, no en el
+   navegador de cada persona. Las preferencias de interfaz (tema,
+   sidebar colapsado) sí quedan guardadas localmente por navegador,
+   porque son solo de presentación, no datos de trabajo.
    ============================================================
    Vistas: Tareas (lista) · Dashboard · Encargados
    Cada tarea: nombre, notas, encargado, fecha inicio, fecha término,
@@ -12,15 +17,21 @@
 "use strict";
 
 /* ============================================================
-   1. DATOS Y ALMACENAMIENTO
+   1. FIREBASE: CONEXIÓN Y SINCRONIZACIÓN EN TIEMPO REAL
    ============================================================ */
-const STORAGE_KEYS = {
-  tasks: 'orontes_tasks_v2',
-  people: 'orontes_people_v2',
-  theme: 'orontes_theme',
-  sidebarCollapsed: 'orontes_sidebar_collapsed'
+const firebaseConfig = {
+  apiKey: "AIzaSyDPtbvNATUegy5F5XeNb9MJN2osj-0YR0Q",
+  authDomain: "administracion-orontes.firebaseapp.com",
+  databaseURL: "https://administracion-orontes-default-rtdb.firebaseio.com",
+  projectId: "administracion-orontes",
+  storageBucket: "administracion-orontes.firebasestorage.app",
+  messagingSenderId: "346257967394",
+  appId: "1:346257967394:web:7a01b397762ff511cf3d7b"
 };
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
 
+const STORAGE_KEYS = { theme: 'orontes_theme', sidebarCollapsed: 'orontes_sidebar_collapsed' };
 const PALETTE = ['#4A4F54','#B5654F','#C08A4E','#BFA246','#6F8F72','#5D7C8A','#8B7FA6','#A9A48F','#7C8B99','#B08968'];
 
 function loadJSON(key, fallback){
@@ -56,26 +67,74 @@ function seedTasks(people){
 }
 
 let STATE = {
-  people: loadJSON(STORAGE_KEYS.people, null),
-  tasks: loadJSON(STORAGE_KEYS.tasks, null),
+  people: [],
+  tasks: [],
   listSort: 'fecha',
   filters: { responsable:'', estado:'' },
   search: '',
   pendingDeleteAction: null
 };
 
-if(!Array.isArray(STATE.people)){ STATE.people = seedPeople(); saveJSON(STORAGE_KEYS.people, STATE.people); }
-if(!Array.isArray(STATE.tasks)){ STATE.tasks = seedTasks(STATE.people); saveJSON(STORAGE_KEYS.tasks, STATE.tasks); }
+/* --- Escritura en Firebase: cada función guarda solo el registro que
+   cambió (no toda la colección), para que dos personas puedan editar
+   tareas distintas al mismo tiempo sin pisarse los cambios. --- */
+function saveTaskToDB(task){ db.ref('tasks/' + task.id).set(task); }
+function removeTaskFromDB(id){ db.ref('tasks/' + id).remove(); }
+function savePersonToDB(person){ db.ref('people/' + person.id).set(person); }
+function removePersonFromDB(id){ db.ref('people/' + id).remove(); }
+function bulkSaveTasksToDB(tasksArray){
+  const updates = {}; tasksArray.forEach(t=> updates['tasks/'+t.id] = t);
+  return db.ref().update(updates);
+}
+function bulkSavePeopleToDB(peopleArray){
+  const updates = {}; peopleArray.forEach(p=> updates['people/'+p.id] = p);
+  return db.ref().update(updates);
+}
 
-function persistTasks(){ saveJSON(STORAGE_KEYS.tasks, STATE.tasks); }
-function persistPeople(){ saveJSON(STORAGE_KEYS.people, STATE.people); }
+/* --- Lectura en tiempo real: cada vez que cambian los datos en Firebase
+   (por ti o por cualquier otra persona con el link), esto se dispara
+   solo y refresca la pantalla automáticamente. --- */
+let peopleLoaded = false, tasksLoaded = false, seedChecked = false;
+function maybeSeedIfEmpty(){
+  if(seedChecked || !peopleLoaded || !tasksLoaded) return;
+  if(STATE.people.length===0 && STATE.tasks.length===0){
+    seedChecked = true;
+    const people = seedPeople();
+    const tasks = seedTasks(people);
+    bulkSavePeopleToDB(people);
+    bulkSaveTasksToDB(tasks);
+  } else {
+    seedChecked = true;
+  }
+}
+db.ref('people').on('value', snapshot=>{
+  const val = snapshot.val() || {};
+  STATE.people = Object.values(val);
+  peopleLoaded = true;
+  window.ORONTES && window.ORONTES.refreshAllSelects && window.ORONTES.refreshAllSelects();
+  window.ORONTES && window.ORONTES.refreshCurrentView && window.ORONTES.refreshCurrentView();
+  maybeSeedIfEmpty();
+}, error=>{
+  console.error('Firebase (people) error:', error);
+  window.ORONTES && window.ORONTES.toast && window.ORONTES.toast('No se pudo conectar con la base de datos compartida', 'error', 'fa-triangle-exclamation');
+});
+db.ref('tasks').on('value', snapshot=>{
+  const val = snapshot.val() || {};
+  STATE.tasks = Object.values(val);
+  tasksLoaded = true;
+  window.ORONTES && window.ORONTES.refreshCurrentView && window.ORONTES.refreshCurrentView();
+  window.ORONTES && window.ORONTES.renderNotifications && window.ORONTES.renderNotifications();
+  maybeSeedIfEmpty();
+}, error=>{
+  console.error('Firebase (tasks) error:', error);
+  window.ORONTES && window.ORONTES.toast && window.ORONTES.toast('No se pudo conectar con la base de datos compartida', 'error', 'fa-triangle-exclamation');
+});
 
-/* Backup automático cada 30s */
-setInterval(()=>{ saveJSON('orontes_backup_v2', {tasks:STATE.tasks, people:STATE.people, ts:Date.now()}); }, 30000);
-
+/* Restablecer solo afecta preferencias guardadas en ESTE navegador
+   (tema, sidebar). Ya NO borra las tareas ni encargados compartidos,
+   porque esos ahora son de todo el equipo y viven en Firebase. */
 window.resetOrontesData = function(){
   Object.values(STORAGE_KEYS).forEach(k=> localStorage.removeItem(k));
-  localStorage.removeItem('orontes_backup_v2');
   location.reload();
 };
 
@@ -93,6 +152,7 @@ function fmtDateHuman(str){
   const d = parseDate(str);
   const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
   return `${d.getDate()} ${meses[d.getMonth()]} ${d.getFullYear()}`;
+
 }
 function daysBetween(a,b){ return Math.round((a-b)/(1000*60*60*24)); }
 
@@ -184,7 +244,7 @@ document.getElementById('collapseToggle').addEventListener('click', ()=>{
 });
 
 document.getElementById('resetDataBtn').addEventListener('click', ()=>{
-  if(confirm('Esto borrará todas las tareas y encargados guardados en este navegador, y volverá a los datos de ejemplo. ¿Continuar?')){
+  if(confirm('Esto solo reiniciará tus preferencias locales (tema, menú) en este navegador. Las tareas y encargados son compartidos y NO se van a borrar. ¿Continuar?')){
     resetOrontesData();
   }
 });
@@ -198,9 +258,9 @@ function safeRender(fn, containerEl){
     if(containerEl){
       containerEl.innerHTML = `<div class="empty-state">
         <i class="fa-solid fa-triangle-exclamation" style="font-size:26px;color:var(--state-overdue);margin-bottom:10px;"></i>
-        <p>Ocurrió un problema al mostrar esta vista. Esto suele deberse a datos guardados dañados.</p>
-        <button class="btn btn-danger btn-sm" style="margin-top:12px;" onclick="if(confirm('Esto borrará todos los datos guardados en este navegador y volverá a los datos de ejemplo. ¿Continuar?')) resetOrontesData();">
-          <i class="fa-solid fa-arrows-rotate"></i> Restablecer datos
+        <p>Ocurrió un problema al mostrar esta vista.</p>
+        <button class="btn btn-danger btn-sm" style="margin-top:12px;" onclick="if(confirm('Esto reiniciará tus preferencias locales en este navegador (no borra las tareas compartidas). ¿Continuar?')) resetOrontesData();">
+          <i class="fa-solid fa-arrows-rotate"></i> Recargar
         </button>
       </div>`;
     }
@@ -253,7 +313,8 @@ document.getElementById('confirmOk').addEventListener('click', ()=>{
 
 window.ORONTES = { STATE, STORAGE_KEYS, PALETTE, saveJSON, loadJSON, uid, todayStr, parseDate, fmtDateHuman, toISODate,
   daysBetween, getPerson, getPersonName, getPersonColor, initials, ESTADOS, getEstadoMeta, getUrgencyState,
-  escapeHtml, persistTasks, persistPeople, toast, askConfirm, switchView, refreshCurrentView, brandMarkSVG };
+  escapeHtml, saveTaskToDB, removeTaskFromDB, savePersonToDB, removePersonFromDB, bulkSaveTasksToDB, bulkSavePeopleToDB,
+  toast, askConfirm, switchView, refreshCurrentView, brandMarkSVG };
 
 })();
 
@@ -262,7 +323,7 @@ window.ORONTES = { STATE, STORAGE_KEYS, PALETTE, saveJSON, loadJSON, uid, todayS
    ============================================================ */
 (function(){
 const O = window.ORONTES;
-const { STATE, PALETTE, persistPeople, uid, initials, toast, askConfirm } = O;
+const { STATE, PALETTE, uid, initials, toast, askConfirm } = O;
 
 function renderPersonColorSwatches(selected){
   const wrap = document.getElementById('personColorSwatches');
@@ -305,13 +366,16 @@ document.getElementById('personModalSave').addEventListener('click', ()=>{
     color: getSelectedPersonColor()
   };
   if(id){
-    Object.assign(O.getPerson(id), data);
+    const existing = O.getPerson(id);
+    Object.assign(existing, data);
+    O.savePersonToDB(existing);
     toast('Encargado actualizado', 'success', 'fa-circle-check');
   } else {
-    STATE.people.push({id: uid('p'), ...data});
+    const newPerson = {id: uid('p'), ...data};
+    STATE.people.push(newPerson);
+    O.savePersonToDB(newPerson);
     toast('Encargado creado', 'success', 'fa-circle-check');
   }
-  persistPeople();
   closePersonModal();
   renderPeople();
   O.refreshAllSelects && O.refreshAllSelects();
@@ -321,8 +385,10 @@ function deletePerson(id){
   const p = O.getPerson(id);
   askConfirm('¿Eliminar encargado?', `Se eliminará a "${p.nombre}". Las tareas asignadas quedarán sin responsable.`, ()=>{
     STATE.people = STATE.people.filter(x=>x.id!==id);
-    STATE.tasks.forEach(t=>{ if(t.responsable===id) t.responsable=''; });
-    persistPeople(); O.persistTasks();
+    const affectedTasks = STATE.tasks.filter(t=> t.responsable===id);
+    affectedTasks.forEach(t=> t.responsable='');
+    O.removePersonFromDB(id);
+    if(affectedTasks.length) O.bulkSaveTasksToDB(affectedTasks);
     toast('Encargado eliminado', 'success', 'fa-trash');
     renderPeople();
     O.refreshAllSelects && O.refreshAllSelects();
@@ -360,7 +426,7 @@ O.renderPeople = renderPeople;
    ============================================================ */
 (function(){
 const O = window.ORONTES;
-const { STATE, persistTasks, uid, toast, askConfirm, todayStr } = O;
+const { STATE, uid, toast, askConfirm, todayStr } = O;
 
 function refreshAllSelects(){
   const opts = '<option value="">Sin asignar</option>' + STATE.people.map(p=>`<option value="${p.id}">${O.escapeHtml(p.nombre)}</option>`).join('');
@@ -420,7 +486,7 @@ document.getElementById('taskModalSave').addEventListener('click', ()=>{
     savedTask = t;
     toast('Tarea creada correctamente', 'success', 'fa-circle-check');
   }
-  persistTasks();
+  O.saveTaskToDB(savedTask);
   closeTaskModal();
   O.refreshCurrentView();
   const stillVisible = O.applyFilters([savedTask]).length > 0;
@@ -433,7 +499,7 @@ function deleteTask(id){
   const t = STATE.tasks.find(x=>x.id===id);
   askConfirm('¿Eliminar tarea?', `Se eliminará "${t.nombre}" de forma permanente.`, ()=>{
     STATE.tasks = STATE.tasks.filter(x=>x.id!==id);
-    persistTasks();
+    O.removeTaskFromDB(id);
     toast('Tarea eliminada', 'success', 'fa-trash');
     O.closeTaskDrawer && O.closeTaskDrawer();
     O.refreshCurrentView();
@@ -442,21 +508,21 @@ function deleteTask(id){
 function changeTaskStatus(id, estado){
   const t = STATE.tasks.find(x=>x.id===id);
   t.estado = estado;
-  persistTasks();
+  O.saveTaskToDB(t);
   toast('Estado actualizado', 'success', 'fa-circle-check');
   O.refreshCurrentView();
 }
 function changeTaskResponsable(id, respId){
   const t = STATE.tasks.find(x=>x.id===id);
   t.responsable = respId;
-  persistTasks();
+  O.saveTaskToDB(t);
   toast('Encargado actualizado', 'success', 'fa-circle-check');
   O.refreshCurrentView();
 }
 function moveTaskDate(id, field, newDate){
   const t = STATE.tasks.find(x=>x.id===id);
   t[field] = newDate;
-  persistTasks();
+  O.saveTaskToDB(t);
   toast('Fecha actualizada', 'success', 'fa-circle-check');
   O.refreshCurrentView();
 }
@@ -897,21 +963,32 @@ document.getElementById('importInput').addEventListener('change', (e)=>{
     try{
       if(file.name.endsWith('.json')){
         const data = JSON.parse(ev.target.result);
-        if(data.tasks){ data.tasks.forEach(t=> STATE.tasks.push({...t, id: O.uid('t')})); O.persistTasks(); }
-        if(data.people){ data.people.forEach(p=> STATE.people.push({...p, id:O.uid('p')})); O.persistPeople(); }
+        if(data.tasks){
+          const newTasks = data.tasks.map(t=> ({...t, id: O.uid('t')}));
+          newTasks.forEach(t=> STATE.tasks.push(t));
+          O.bulkSaveTasksToDB(newTasks);
+        }
+        if(data.people){
+          const newPeople = data.people.map(p=> ({...p, id:O.uid('p')}));
+          newPeople.forEach(p=> STATE.people.push(p));
+          O.bulkSavePeopleToDB(newPeople);
+        }
       } else {
         const lines = ev.target.result.split(/\r?\n/).filter(Boolean);
         const headers = lines[0].split(',').map(h=>h.replace(/"/g,'').trim().toLowerCase());
+        const newTasks = [];
         lines.slice(1).forEach(line=>{
           const cols = line.match(/(".*?"|[^,]+)(?=,|$)/g).map(c=>c.replace(/^"|"$/g,'').replace(/""/g,'"'));
           const get = (name)=>{ const i = headers.indexOf(name); return i>=0 ? cols[i] : ''; };
-          STATE.tasks.push({
+          const t = {
             id:O.uid('t'), nombre:get('nombre')||'Tarea importada', descripcion:get('notas')||'',
             responsable:'', fechaInicio:get('fechainicio')||O.todayStr(), fechaTermino:get('fechatermino')||get('fechainicio')||O.todayStr(),
             estado:'pendiente'
-          });
+          };
+          newTasks.push(t);
+          STATE.tasks.push(t);
         });
-        O.persistTasks();
+        O.bulkSaveTasksToDB(newTasks);
       }
       O.toast('Importación completada', 'success', 'fa-file-import');
       O.refreshCurrentView();
